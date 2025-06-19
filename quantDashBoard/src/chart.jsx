@@ -6,7 +6,7 @@ function Chart() {
         <div className="chart">
         <h2>Chart Component</h2>
         <p>This is where the chart will be displayed.</p>
-        {/* Add your charting library component here, e.g., Chart.js, Recharts, etc. */}
+        {/* Add your charting library component here, Chart.js */}
         </div>
     );
     }

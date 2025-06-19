@@ -13,7 +13,7 @@
   font-size: 1.5rem;
   color: #fff;
   font-weight: bold;
-  /* Remove fixed width/height if using text */
+
   margin: 0;
 }
 
@@ -21,7 +21,7 @@
   list-style-type: none;
   margin: 0;
   padding: 0;
-  display: flex; /* Use flex for horizontal layout */
+  display: flex;
   align-items: center;
 }
 
