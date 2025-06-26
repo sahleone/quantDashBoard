@@ -69,7 +69,34 @@ const response =
     },
   );
 // console.log(response.data);
-console.log(JSON.stringify(response.data, null, 2));
+// console.log(JSON.stringify(response.data[0], null, 2));
+
+// Get array of portfolio positions
+// [{symbol, quantity, price, description,...}, {...}]
+
+// break down the response data to get the portfolio positions
+// const first = response.data[0].positions.length;
+// console.log("fisrst.symbol", first.symbol);
+// console.log("fisrst.symbol?.symbol.symbol", first.symbol?.symbol);
+
+const portfolioPositions = response.data.map((position) => {
+  return {
+    symbol: position.symbol?.symbol.symbol,
+    symbolDescription: position.symbol?.symbol.description,
+    price: position.price,
+    units: position.units,
+    averagePurchasePrice: position.average_purchase_price,
+    openPnL: position.open_pnl,
+    currency: position.currency?.code,
+  };
+});
+
+console.log(portfolioPositions[0]);
+
+
+
+
+
 
 
 
