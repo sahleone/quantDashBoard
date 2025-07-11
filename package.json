@@ -1,6 +1,0 @@
-{
-  "dependencies": {
-    "dotenv": "^16.5.0",
-    "snaptrade-typescript-sdk": "^9.0.113"
-  }
-}
