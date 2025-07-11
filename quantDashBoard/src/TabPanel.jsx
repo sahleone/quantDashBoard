@@ -1,6 +1,8 @@
 import React, { useState } from "react";
 import "./TabPanel.css";
 
+import Positions from "./positions";
+
 const tabs = [
   { label: "Performance", key: "performance" },
   { label: "Positions", key: "positions" },
@@ -18,7 +20,7 @@ function TabPanel() {
       case "performance":
         return <div> Total Return, Sharpe, Sortino</div>;
       case "positions":
-        return <div>positions</div>;
+        return <Positions />;
       case "risk":
         return <div>Volatility, Beta, VaR, CVaR, Drawdownt</div>;
       case "factor":
