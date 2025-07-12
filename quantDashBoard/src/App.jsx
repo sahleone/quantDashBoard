@@ -1,10 +1,36 @@
-import React from 'react';
-import DashboardLayout from './DashboardLayout';
+import React from "react";
+import {
+  createBrowserRouter,
+  createRoutesFromElements,
+  Route,
+  RouterProvider,
+} from "react-router-dom";
 
+// pages
+import Dashboard from "./pages/Dashboard";
+import Home from "./pages/Home";
+import Settings from "./pages/Settings";
+import Portfolio from "./pages/Portfolio";
+
+// layouts
+import RootLayout from "./Layouts/RootLayout";
+
+const router = createBrowserRouter(
+  createRoutesFromElements(
+    <Route path="/" element={<RootLayout />}>
+      <Route index element={<Home />} />
+      <Route path="portfolio" element={<Portfolio />} />
+      <Route path="dashboard" element={<Dashboard />} />
+      <Route path="settings" element={<Settings />} />
+    </Route>
+  )
+);
 
 function App() {
   return (
-<DashboardLayout/>
+    <div className="app">
+      <RouterProvider router={router} />
+    </div>
   );
 }
 

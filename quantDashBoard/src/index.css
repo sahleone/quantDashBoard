@@ -1,0 +1,15 @@
+header nav {
+  display: flex;
+  justify-content: end;
+gap: 32px;
+margin: 0 auto;
+}
+
+header nav h1 {
+  margin-right: auto;
+}
+
+
+header nav a {
+  border-bottom: 5px solid transparent;
+}
