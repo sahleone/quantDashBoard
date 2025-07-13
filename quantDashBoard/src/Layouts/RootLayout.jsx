@@ -11,6 +11,7 @@ function RootLayout() {
           <NavLink to="/portfolio">Portfolio</NavLink>
           <NavLink to="/dashboard">Dashboard</NavLink>
           <NavLink to="/settings">Settings</NavLink>
+          <NavLink to="/stock-info">Stock Info</NavLink>
         </nav>
       </header>
       <main>
