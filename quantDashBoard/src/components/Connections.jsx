@@ -1,14 +1,12 @@
-import { useState } from "react";
-import "./Connections.css";
+import React, { useState } from "react";
 
-function Connections() {
+const ConnectBrokerage = () => {
 
   return (
-
-    <div className="connections">
-      <h2>Connections</h2>
+    <div>
+      <h1>Connections</h1>
     </div>
   );
-}
+};
 
-export default Connections;
+export default ConnectBrokerage;
