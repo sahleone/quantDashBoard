@@ -1,0 +1,19 @@
+.notfound {
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border-radius: 12px;
+  padding: 2rem;
+  max-width: 600px;
+  margin: 4rem auto;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  text-align: center;
+}
+
+.notfound h1 {
+  color: var(--highlight);
+}
+
+.notfound a {
+  color: var(--highlight);
+  text-decoration: underline;
+}

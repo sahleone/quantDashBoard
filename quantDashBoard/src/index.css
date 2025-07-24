@@ -1,15 +1,88 @@
+:root {
+  --bg-dark: #111112; /* offblack */
+  --bg-card: #18191a; /* slightly lighter offblack */
+  --bg-offwhite: #f7f7f5;
+  --text-primary: #f7f7f5; /* offwhite */
+  --text-secondary: #b0b0b0; /* muted offwhite */
+  --accent: #ffffff; /* white for accents */
+  --accent-hover: #e0e0e0; /* light offwhite */
+  --border: #232324; /* dark border */
+  --highlight: #fff; /* white highlight */
+}
+
+body {
+  background-color: var(--bg-dark);
+  color: var(--text-primary);
+  font-family: "Inter", sans-serif;
+}
+
+button {
+  background-color: var(--bg-card);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  font-weight: 600;
+  transition: background 0.2s, color 0.2s;
+}
+
+button:hover {
+  background-color: var(--accent-hover);
+  color: var(--bg-dark);
+}
+
+a {
+  color: var(--highlight);
+  text-decoration: underline;
+}
+
 header nav {
   display: flex;
-  justify-content: end;
-gap: 32px;
-margin: 0 auto;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 32px;
+  margin: 0 auto;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-card);
+  padding: 0 2rem;
 }
 
 header nav h1 {
   margin-right: auto;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-size: 2rem;
+  line-height: 1;
 }
 
-
 header nav a {
-  border-bottom: 5px solid transparent;
+  border-bottom: 3px solid transparent;
+  color: var(--text-secondary);
+  transition: border 0.2s, color 0.2s;
+}
+
+header nav a:hover {
+  border-bottom: 3px solid var(--highlight);
+  color: var(--highlight);
+}
+
+table {
+  width: 100%;
+  background: var(--bg-card);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+th,
+td {
+  padding: 0.75rem 1rem;
+  color: var(--text-primary);
+  background-color: var(--bg-card);
+  border-bottom: 1px solid var(--border);
+  text-align: center;
+}
+
+th {
+  background: var(--bg-dark);
+  color: var(--highlight);
 }

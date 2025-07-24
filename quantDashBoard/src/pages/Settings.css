@@ -2,14 +2,15 @@
   display: flex;
   height: 100vh;
   min-height: 500px;
+  background: var(--bg-dark);
 }
 
 .settings-container {
   display: flex;
   flex-direction: column;
   align-items: center;
-  background: #fafbfc;
-  border-right: 1px solid #eee;
+  background: var(--bg-card);
+  border-right: 1px solid var(--border);
   padding: 40px 0;
   width: 20%;
 }
@@ -17,6 +18,7 @@
 .settings-container h1 {
   font-size: 2rem;
   margin-bottom: 2rem;
+  color: var(--highlight);
 }
 
 .settings-container ul {
@@ -33,27 +35,30 @@
 
 .settings-btn {
   padding: 1rem;
-  background: #f4f7fa;
-  border: none;
+  background: var(--bg-dark);
+  border: 1px solid var(--border);
   border-radius: 8px;
   font-size: 1rem;
   cursor: pointer;
   transition: all 0.2s ease;
-  color: #555;
+  color: var(--text-secondary);
 }
 
 .settings-btn:hover {
-  background: #e9ecef;
+  background: var(--accent-hover);
+  color: var(--bg-dark);
 }
 
 .settings-btn.active {
-  background: #007bff;
-  color: white;
+  background: var(--highlight);
+  color: var(--bg-dark);
 }
 
 .settings-content {
   padding: 60px;
   display: flex;
   flex-direction: column;
-  background: #fff;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  width: 80%;
 }

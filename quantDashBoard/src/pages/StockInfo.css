@@ -2,16 +2,17 @@
   max-width: 800px;
   margin: 0 auto;
   padding: 20px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border-radius: 12px;
 }
 
 .form-container {
   width: 50%;
   margin: 0 auto;
   padding: 20px;
-  border: 1px solid #ccc;
+  border: 1px solid var(--border);
   border-radius: 8px;
-  background-color: #f9f9f9;
+  background-color: var(--bg-dark);
+  color: var(--text-primary);
 }
-
-
-
