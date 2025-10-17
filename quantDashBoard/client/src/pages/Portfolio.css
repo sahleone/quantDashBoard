@@ -1,0 +1,114 @@
+.portfolio {
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border-radius: 16px;
+  padding: 2rem;
+  max-width: 1080px;
+  margin: 2rem auto;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+
+.portfolio h1 {
+  color: var(--highlight);
+  margin-bottom: 0.5rem;
+}
+
+.portfolio p {
+  color: var(--text-secondary);
+}
+
+.portfolio-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem 2rem;
+  margin-top: 1.5rem;
+  font-size: 0.95rem;
+  color: var(--text-secondary);
+}
+
+.portfolio-summary span strong {
+  color: var(--text-primary);
+  margin-right: 0.4rem;
+}
+
+.portfolio-summary .portfolio-source {
+  font-style: italic;
+}
+
+.portfolio-content {
+  margin-top: 2rem;
+}
+
+.portfolio-table-wrapper {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.portfolio-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.portfolio-table thead {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.portfolio-table th,
+.portfolio-table td {
+  padding: 0.75rem 1rem;
+  text-align: left;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.portfolio-table th {
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+}
+
+.portfolio-table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.portfolio-table td.account-cell {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.portfolio-status {
+  padding: 1rem;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.portfolio-status--error {
+  color: #f05d5e;
+}
+
+.pnl-positive {
+  color: #4caf50;
+  font-weight: 600;
+}
+
+.pnl-negative {
+  color: #f44336;
+  font-weight: 600;
+}
+
+@media (max-width: 768px) {
+  .portfolio {
+    padding: 1.5rem;
+  }
+
+  .portfolio-summary {
+    gap: 1rem;
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
