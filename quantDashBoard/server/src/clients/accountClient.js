@@ -300,6 +300,41 @@ class AccountServiceClientService {
   }
 
   /**
+   * Retrieves account rate of return percentages for available timeframes
+   *
+   * @async
+   * @method getUserAccountReturnRates
+   * @param {string} userId
+   * @param {string} userSecret
+   * @param {string} accountId
+   * @returns {Promise<Object>} RateOfReturnResponse from SnapTrade
+   */
+  async getUserAccountReturnRates(userId, userSecret, accountId) {
+    try {
+      const response =
+        await this.client.accountInformation.getUserAccountReturnRates({
+          accountId: accountId,
+          userId: userId,
+          userSecret: userSecret,
+        });
+      return response.data;
+    } catch (error) {
+      console.error(
+        "AccountServiceClient.getUserAccountReturnRates error:",
+        error
+      );
+      // Log expanded SDK response details including headers for easier debugging
+      console.error("SDK error details:", {
+        message: error.message,
+        status: error.response?.status,
+        headers: error.response?.headers,
+        data: error.response?.data,
+      });
+      throw error;
+    }
+  }
+
+  /**
    * Transforms SnapTrade positions data for MongoDB AccountPositions model
    *
    * Converts SnapTrade API response format to match the AccountPositions schema
@@ -363,10 +398,7 @@ class AccountServiceClientService {
         asOfDate: new Date(),
         accountId: accountId,
         symbolTicker: symbolTicker,
-        listingExchangeCode:
-          position.symbol?.symbol?.exchange?.code ||
-          position.symbol?.exchange?.code ||
-          null,
+        listingExchangeCode: ls || position.symbol?.exchange?.code || null,
         positionSymbol: {
           symbol: {
             id: position.symbol?.symbol?.id || position.symbol?.id,
@@ -1183,16 +1215,8 @@ class AccountServiceClientService {
           accountDetail,
           userId
         ),
-        balances: this.transformBalancesForMongoDB(
-          balances,
-          accountId,
-          userId
-        ),
-        holdings: this.transformHoldingsForMongoDB(
-          holdings,
-          accountId,
-          userId
-        ),
+        balances: this.transformBalancesForMongoDB(balances, accountId, userId),
+        holdings: this.transformHoldingsForMongoDB(holdings, accountId, userId),
         positions: this.transformPositionsForMongoDB(
           positions,
           accountId,

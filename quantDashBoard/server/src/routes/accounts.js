@@ -61,6 +61,22 @@ router.get("/positions", (req, res) => {
 });
 
 /**
+ * Get Account Return Rates
+ * GET /api/accounts/:accountId/returnRates
+ */
+router.get("/:accountId/returnRates", (req, res) => {
+  accountsController.getReturnRates(req, res);
+});
+
+/**
+ * Get account return rates for authenticated user (selects first account)
+ * GET /api/accounts/returnRates
+ */
+router.get("/returnRates", (req, res) => {
+  accountsController.getReturnRatesForUser(req, res);
+});
+
+/**
  * Sync Holdings Data from SnapTrade
  * POST /api/sync/holdings
  * Body: { userId, userSecret, accountIds?, fullSync? }

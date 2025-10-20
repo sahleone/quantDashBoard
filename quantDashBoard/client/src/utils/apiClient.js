@@ -12,6 +12,11 @@
 
 import axios from "axios";
 
+// Base URL for backend API. Use Vite env variable when available, fall back to localhost.
+const API_BASE =
+  (import.meta && import.meta.env && import.meta.env.VITE_API_BASE) ||
+  "http://localhost:3000";
+
 /**
  * Create an authenticated axios request configuration
  * @param {string} url - The API endpoint URL
@@ -25,8 +30,12 @@ export const createAuthenticatedRequest = (url, options = {}) => {
     throw new Error("No access token found. Please log in.");
   }
 
+  // If a relative path is provided (starts with '/'), prefix with API_BASE
+  const fullUrl =
+    typeof url === "string" && url.startsWith("/") ? `${API_BASE}${url}` : url;
+
   return {
-    url,
+    url: fullUrl,
     withCredentials: true,
     headers: {
       ...options.headers,

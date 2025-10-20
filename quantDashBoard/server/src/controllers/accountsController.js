@@ -147,9 +147,10 @@ class AccountsController {
                     last_successful_sync: transactionsSync?.last_successful_sync
                       ? new Date(transactionsSync.last_successful_sync)
                       : null,
-                    first_transaction_date: transactionsSync?.first_transaction_date
-                      ? new Date(transactionsSync.first_transaction_date)
-                      : null,
+                    first_transaction_date:
+                      transactionsSync?.first_transaction_date
+                        ? new Date(transactionsSync.first_transaction_date)
+                        : null,
                   },
                   holdings: {
                     initial_sync_completed:
@@ -439,6 +440,148 @@ class AccountsController {
           message: "Failed to retrieve balances from SnapTrade API",
           details: error.message,
           retryAfter: 60,
+        },
+      });
+    }
+  }
+
+  /**
+   * Get account rate of return percentages
+   *
+   * GET /api/accounts/:accountId/returnRates
+   */
+  async getReturnRates(req, res) {
+    try {
+      const user = req.user;
+      if (!user) {
+        return res.status(401).json({
+          error: { code: "UNAUTHORIZED", message: "Not authenticated" },
+        });
+      }
+
+      const { accountId } = req.params;
+
+      if (!accountId) {
+        return res.status(400).json({
+          error: { code: "VALIDATION_ERROR", message: "Missing accountId" },
+        });
+      }
+
+      console.log(
+        `Getting return rates for user: ${user.userId}, account: ${accountId}`
+      );
+
+      const returnRates = await this.accountService.getUserAccountReturnRates(
+        user.userId,
+        user.userSecret,
+        accountId
+      );
+      res.status(200).json({
+        accountId,
+        rates: returnRates,
+        source: "snaptrade_api",
+      });
+    } catch (error) {
+      console.error("Error getting return rates:", error);
+      // Include SDK response details when available for easier debugging
+      const details = {
+        message: error.message,
+        sdkStatus: error.response?.status,
+        sdkData: error.response?.data,
+      };
+      res.status(500).json({
+        error: {
+          code: "RETURN_RATES_FAILED",
+          message: "Failed to retrieve return rates",
+          details,
+        },
+      });
+    }
+  }
+
+  /**
+   * Get account return rates for the authenticated user
+   * Picks a default account (first) for the user if no accountId provided
+   * GET /api/accounts/returnRates
+   */
+  async getReturnRatesForUser(req, res) {
+    try {
+      const user = req.user;
+      if (!user) {
+        return res.status(401).json({
+          error: { code: "UNAUTHORIZED", message: "Not authenticated" },
+        });
+      }
+
+      if (!user.userSecret) {
+        return res.status(400).json({
+          error: {
+            code: "MISSING_SNAPTRADE_CREDENTIALS",
+            message: "User does not have SnapTrade credentials",
+          },
+        });
+      }
+
+      // Get accounts for user via accountService
+      const accounts = await this.accountService.listAccounts(
+        user.userId,
+        user.userSecret
+      );
+
+      if (!Array.isArray(accounts) || accounts.length === 0) {
+        return res.status(404).json({
+          error: {
+            code: "NO_ACCOUNTS",
+            message:
+              "No SnapTrade accounts found for user. Connect a brokerage or sync connections.",
+          },
+        });
+      }
+
+      const accountId =
+        accounts[0].id ||
+        accounts[0].accountId ||
+        accounts[0].account_id ||
+        accounts[0].id;
+
+      if (!accountId) {
+        return res.status(500).json({
+          error: {
+            code: "ACCOUNT_ID_NOT_FOUND",
+            message: "Could not determine account id",
+          },
+        });
+      }
+
+      const returnRates = await this.accountService.getUserAccountReturnRates(
+        user.userId,
+        user.userSecret,
+        accountId
+      );
+
+      res.status(200).json({
+        accountId,
+        rates: returnRates,
+        source: "snaptrade_api",
+      });
+    } catch (error) {
+      console.error("Error getting return rates for user:", error);
+      // Include SDK details for debugging and, when available, forward the SDK status
+      const sdkStatus = error.response?.status;
+      const details = {
+        message: error.message,
+        sdkStatus: sdkStatus,
+        sdkData: error.response?.data,
+      };
+
+      const statusToReturn =
+        sdkStatus && Number.isInteger(sdkStatus) ? sdkStatus : 500;
+
+      res.status(statusToReturn).json({
+        error: {
+          code: "RETURN_RATES_USER_FAILED",
+          message: "Failed to retrieve return rates for user",
+          details,
         },
       });
     }
