@@ -26,4 +26,6 @@ dist-ssr
 
 .env
 .venv
-*.csv
+*.csvcookies.txt
+.DS_Store
+.venv/
