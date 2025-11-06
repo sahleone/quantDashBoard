@@ -1,7 +1,7 @@
 import React, { useEffect } from "react";
-import Chart from "../components/chart";
-import TabPanel from "../components/TabPanel";
-import ConnectBrokerage from "../components/ConnectBrokerage";
+import Chart from "../components/chart/chart";
+import TabPanel from "../components/tabPanel/TabPanel";
+import ConnectBrokerage from "../components/connectBrokerage/ConnectBrokerage";
 import { authenticatedGet } from "../utils/apiClient";
 
 function Dashboard({ children }) {

@@ -1,20 +1,31 @@
 import { NavLink, Outlet } from "react-router-dom";
+import { useContext } from "react";
+import UserContext from "../context/Usercontext";
 
 function RootLayout() {
+  const context = useContext(UserContext) || {};
+  const { userId } = context;
+
+  const isAuthenticated = !!userId;
+
   return (
     <div className="root-layout">
       <header>
         <nav>
           <h1>Quant Dashboard</h1>
 
-          <NavLink to="/">Home</NavLink>
-          <NavLink to="/portfolio">Portfolio</NavLink>
-          <NavLink to="/dashboard">Dashboard</NavLink>
-          <NavLink to="/settings">Settings</NavLink>
-          <NavLink to="/stock-info">Stock Info</NavLink>
-          <NavLink to="/login">Login</NavLink>
-          <NavLink to="/signup">Signup</NavLink>
-          <NavLink to="/logout">Logout</NavLink>
+          {/* Protected links: show only when authenticated */}
+          {isAuthenticated && (
+            <>
+              <NavLink to="/portfolio">Portfolio</NavLink>
+              <NavLink to="/dashboard">Dashboard</NavLink>
+              <NavLink to="/settings">Settings</NavLink>
+              <NavLink to="/stock-info">Stock Info</NavLink>
+            </>
+          )}
+
+          {/* Auth links: show Logout when authenticated, otherwise show Login/Signup */}
+          {isAuthenticated ? <NavLink to="/logout">Logout</NavLink> : null}
         </nav>
       </header>
       <main>

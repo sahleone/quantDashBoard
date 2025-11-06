@@ -398,7 +398,12 @@ class AccountServiceClientService {
         asOfDate: new Date(),
         accountId: accountId,
         symbolTicker: symbolTicker,
-        listingExchangeCode: ls || position.symbol?.exchange?.code || null,
+        // Safely derive exchange code from either the top-level symbol or
+        // the nested symbol object structure returned by SnapTrade.
+        listingExchangeCode:
+          position.symbol?.exchange?.code ||
+          position.symbol?.symbol?.exchange?.code ||
+          null,
         positionSymbol: {
           symbol: {
             id: position.symbol?.symbol?.id || position.symbol?.id,

@@ -1,7 +1,7 @@
 import { useState, useEffect, useContext, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import UserContext from "../context/Usercontext";
-import { authenticatedGet, isAuthenticated } from "../utils/apiClient";
+import UserContext from "../../context/Usercontext";
+import { authenticatedGet } from "../../utils/apiClient";
 
 const formatCurrency = (value, currency = "USD") => {
   if (value === null || value === undefined) {
@@ -21,7 +21,9 @@ const formatCurrency = (value, currency = "USD") => {
     }).format(numericValue);
   } catch (error) {
     console.error("Currency format error:", error);
-    return numericValue.toFixed ? numericValue.toFixed(2) : String(numericValue);
+    return numericValue.toFixed
+      ? numericValue.toFixed(2)
+      : String(numericValue);
   }
 };
 
@@ -58,13 +60,14 @@ const formatPercent = (value) => {
 };
 
 function Portfolio() {
-  const { user } = useContext(UserContext);
+  const { userId } = useContext(UserContext);
   const navigate = useNavigate();
   const [portfolio, setPortfolio] = useState({ accounts: [], summary: null });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const userId = user?.userId;
+  // userId comes from UserContext (set on login). With cookie-based auth the
+  // server maintains the JWT cookie and the client uses userId for UI state.
 
   useEffect(() => {
     const fetchPortfolio = async () => {
@@ -104,19 +107,6 @@ function Portfolio() {
     fetchPortfolio();
   }, [userId]);
 
-  // Show loading or redirect if not authenticated
-  if (!isAuthenticated() || !userId) {
-    return (
-      <div className="portfolio">
-        <div className="portfolio-writeup">
-          <h1>Portfolio</h1>
-          <p>Please log in to view your portfolio.</p>
-          <button onClick={() => navigate("/login")}>Go to Login</button>
-        </div>
-      </div>
-    );
-  }
-
   const flattenedPositions = useMemo(() => {
     if (!portfolio?.accounts?.length) {
       return [];
@@ -139,57 +129,32 @@ function Portfolio() {
     );
   }, [portfolio]);
 
-  const summary = portfolio?.summary || null;
-  const lastUpdated = summary?.lastUpdated
-    ? new Date(summary.lastUpdated).toLocaleString()
-    : null;
+  // Show loading or redirect if not authenticated
+  if (!userId) {
+    return (
+      <div className="portfolio">
+        <div className="portfolio-writeup">
+          <h1>Portfolio</h1>
+          <p>Please log in to view your portfolio.</p>
+          <button onClick={() => navigate("/")}>Go to Home</button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="portfolio">
       <div className="portfolio-writeup">
         <h1>Portfolio</h1>
-        <p>
-          Review your latest holdings, including current cost basis and
-          unrealized returns, aggregated directly from your connected
-          brokerages.
-        </p>
       </div>
-
-      {summary && (
-        <div className="portfolio-summary">
-          <span>
-            <strong>Total Market Value:</strong> {formatCurrency(summary.totalMarketValue)}
-          </span>
-          <span>
-            <strong>Unrealized P/L:</strong> {formatCurrency(summary.totalUnrealizedPnl)}
-          </span>
-          <span>
-            <strong>Cost Basis:</strong> {formatCurrency(summary.totalCostBasis)}
-          </span>
-          <span>
-            <strong>Positions:</strong> {summary.totalPositions || 0}
-          </span>
-          <span>
-            <strong>Total Units:</strong> {formatNumber(summary.totalUnits || summary.totalLots || 0)}
-          </span>
-          {lastUpdated && (
-            <span>
-              <strong>Last Updated:</strong> {lastUpdated}
-            </span>
-          )}
-          {summary.source && (
-            <span className="portfolio-source">
-              Data source: {summary.source === "snaptrade" ? "SnapTrade" : "Database"}
-            </span>
-          )}
-        </div>
-      )}
 
       <div className="portfolio-content">
         {loading ? (
           <div className="portfolio-status">Loading your portfolio...</div>
         ) : error ? (
-          <div className="portfolio-status portfolio-status--error">{error}</div>
+          <div className="portfolio-status portfolio-status--error">
+            {error}
+          </div>
         ) : flattenedPositions.length === 0 ? (
           <div className="portfolio-status">No positions available.</div>
         ) : (
@@ -231,15 +196,37 @@ function Portfolio() {
                       <td>{position.symbol}</td>
                       <td>{position.name}</td>
                       <td>{formatNumber(units)}</td>
-                      <td>{formatCurrency(position.averagePrice, position.currency)}</td>
-                      <td>{formatCurrency(position.costBasis, position.currency)}</td>
-                      <td>{formatCurrency(position.marketPrice, position.currency)}</td>
-                      <td>{formatCurrency(position.marketValue, position.currency)}</td>
-                      <td className={pnlClass}>
-                        {formatCurrency(position.unrealizedPnl, position.currency)}
+                      <td>
+                        {formatCurrency(
+                          position.averagePrice,
+                          position.currency
+                        )}
+                      </td>
+                      <td>
+                        {formatCurrency(position.costBasis, position.currency)}
+                      </td>
+                      <td>
+                        {formatCurrency(
+                          position.marketPrice,
+                          position.currency
+                        )}
+                      </td>
+                      <td>
+                        {formatCurrency(
+                          position.marketValue,
+                          position.currency
+                        )}
                       </td>
                       <td className={pnlClass}>
-                        {returnRatio !== null ? formatPercent(returnRatio) : "—"}
+                        {formatCurrency(
+                          position.unrealizedPnl,
+                          position.currency
+                        )}
+                      </td>
+                      <td className={pnlClass}>
+                        {returnRatio !== null
+                          ? formatPercent(returnRatio)
+                          : "—"}
                       </td>
                     </tr>
                   );

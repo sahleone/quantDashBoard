@@ -1,0 +1,26 @@
+.qd-refresh-button-wrap {
+  display: inline-block;
+  margin: 0.25rem;
+}
+.qd-refresh-button {
+  padding: 0.4rem 0.75rem;
+  border-radius: 6px;
+  border: 1px solid #2b6cb0;
+  background: #3182ce;
+  color: white;
+  cursor: pointer;
+}
+.qd-refresh-button[disabled] {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.qd-refresh-success {
+  color: #276749;
+  margin-top: 0.25rem;
+  font-size: 0.85rem;
+}
+.qd-refresh-error {
+  color: #9b2c2c;
+  margin-top: 0.25rem;
+  font-size: 0.85rem;
+}

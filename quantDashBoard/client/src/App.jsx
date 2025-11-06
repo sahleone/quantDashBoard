@@ -1,4 +1,4 @@
-import { React, useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import {
   createBrowserRouter,
   createRoutesFromElements,
@@ -15,14 +15,14 @@ import { setupAuthInterceptors } from "./utils/authInterceptor";
 
 // pages
 import Dashboard from "./pages/Dashboard";
-import Home from "./pages/Home";
-import Settings from "./pages/Settings";
-import Portfolio from "./pages/Portfolio";
-import StockInfo from "./pages/StockInfo";
-import NotFound from "./pages/NotFound";
-import Login from "./pages/Login";
-import Signup from "./pages/Signup";
+import Home from "./pages/home/Home.jsx";
+import Settings from "./pages/settings/Settings";
+import Portfolio from "./pages/portfolio/Portfolio";
+import StockInfo from "./pages/stockInfo/StockInfo";
+import NotFound from "./pages/notFound/NotFound.jsx";
+
 import Logout from "./components/Logout";
+import ProtectedRoutes from "./utils/ProtectedRoutes.jsx";
 
 // layouts
 import RootLayout from "./Layouts/RootLayout";
@@ -31,20 +31,24 @@ const router = createBrowserRouter(
   createRoutesFromElements(
     <Route path="/" element={<RootLayout />}>
       <Route index element={<Home />} />
-      <Route path="portfolio" element={<Portfolio />} />
-      <Route path="dashboard" element={<Dashboard />} />
-      <Route path="settings" element={<Settings />} />
-      <Route path="stock-info" element={<StockInfo />} />
-      <Route path="login" element={<Login />} />
-      <Route path="signup" element={<Signup />} />
-      <Route path="logout" element={<Logout />} />
+      <Route element={<ProtectedRoutes />}>
+        <Route path="portfolio" element={<Portfolio />} />
+        <Route path="dashboard" element={<Dashboard />} />
+        <Route path="settings" element={<Settings />} />
+        <Route path="stock-info" element={<StockInfo />} />
+        <Route path="logout" element={<Logout />} />
+      </Route>
       <Route path="*" element={<NotFound />} />
     </Route>
   )
 );
 
 function App() {
-  const [user, setUser] = useState({ userId: null });
+  // Ensure axios sends cookies on cross-site requests by default. This
+  // avoids missing cookies on requests that forget to set withCredentials.
+  axios.defaults.withCredentials = true;
+  // Store a richer `user` object in context (id, secret, name, email, ...)
+  const [user, setUser] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
 
   // Setup authentication interceptors on app start
@@ -56,31 +60,34 @@ function App() {
   useEffect(() => {
     const checkAuth = async () => {
       try {
-        // Get access token from localStorage
-        const accessToken = localStorage.getItem("accessToken");
-
-        if (!accessToken) {
-          console.log("No access token found");
-          setIsLoading(false);
-          return;
-        }
-
-        // Try to get current user info with token
+        // We'll ask the API for the current user using credentials (cookies).
+        // We no longer rely on any token in localStorage.
         const response = await axios.get("http://localhost:3000/api/user/me", {
           withCredentials: true,
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-          },
         });
 
-        // If we get here, the user is authenticated
-        setUser(response.data.user);
-        console.log("User is authenticated:", response.data.user);
+        // Expect the server to return either { user: { ... } } or user fields at top
+        const dataUser = response?.data?.user ?? response?.data ?? null;
+
+        if (dataUser) {
+          // Normalize common field names
+          const normalized = {
+            ...dataUser,
+            userId: dataUser.userId ?? dataUser.id ?? dataUser.userid ?? null,
+            userSecret:
+              dataUser.userSecret ??
+              dataUser.secret ??
+              dataUser.secretKey ??
+              null,
+          };
+          setUser(normalized);
+          console.log("User is authenticated:", normalized);
+        } else {
+          console.log("No user info returned from /api/user/me");
+        }
       } catch (error) {
-        console.log("User not authenticated");
-        // Clear invalid token
-        localStorage.removeItem("accessToken");
-        // User is not logged in, keep userId as null
+        console.log("User not authenticated", error?.message ?? error);
+        // Keep context values null when not authenticated
       } finally {
         setIsLoading(false);
       }
@@ -89,12 +96,28 @@ function App() {
     checkAuth();
   }, []);
 
-  if (isLoading) {
-    return <div>Loading...</div>;
-  }
+  if (isLoading) return <div>Loading...</div>;
+
+  // Helper setters to partially update the user object
+  const setUserId = (id) => {
+    setUser((prev) => ({ ...(prev || {}), userId: id }));
+  };
+
+  const setUserSecret = (secret) => {
+    setUser((prev) => ({ ...(prev || {}), userSecret: secret }));
+  };
 
   return (
-    <UserContext.Provider value={{ user, setUser }}>
+    <UserContext.Provider
+      value={{
+        user,
+        setUser,
+        userId: user?.userId ?? null,
+        userSecret: user?.userSecret ?? null,
+        setUserId,
+        setUserSecret,
+      }}
+    >
       <div className="app">
         <RouterProvider router={router} />
       </div>

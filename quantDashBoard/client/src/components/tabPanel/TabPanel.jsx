@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import "./TabPanel.css";
 
-import Positions from "./positions";  
+import Positions from "../positions/positions";
 
 const tabs = [
   { label: "Performance", key: "performance" },

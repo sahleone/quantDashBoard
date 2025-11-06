@@ -1,15 +1,11 @@
 import "./Settings.css";
 import { useReducer, useEffect, useContext } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
-import Profile from "../components/Profile";
-import Preferences from "../components/Preferences";
-import Connections from "../components/Connections";
-import {
-  authenticatedGet,
-  authenticatedPost,
-  isAuthenticated,
-} from "../utils/apiClient";
-import UserContext from "../context/Usercontext";
+import Profile from "../../components/profile/Profile";
+import Preferences from "../../components/preferences/Preferences";
+import Connections from "../../components/connections/Connections";
+import { authenticatedGet, authenticatedPost } from "../../utils/apiClient";
+import UserContext from "../../context/Usercontext";
 
 // Helper function to make authenticated requests using the API client
 const makeAuthenticatedRequest = async (url, options = {}) => {
@@ -30,7 +26,7 @@ function Settings() {
   );
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { user } = useContext(UserContext);
+  const { userId } = useContext(UserContext);
 
   // Reset connection polling marker on mount/unmount
   useEffect(() => {
@@ -44,24 +40,10 @@ function Settings() {
       }
     };
   }, []);
-
-  // Show loading or redirect if not authenticated
-  if (!isAuthenticated() || !user.userId) {
-    return (
-      <div className="settings">
-        <div className="settings-container">
-          <h1>Settings</h1>
-          <p>Please log in to access your settings.</p>
-          <button onClick={() => navigate("/login")}>Go to Login</button>
-        </div>
-      </div>
-    );
-  }
-
   // Poll for new connections after portal completion
   useEffect(() => {
     // Only start polling if user is authenticated
-    if (!isAuthenticated() || !user.userId) {
+    if (!userId) {
       return;
     }
 
@@ -121,17 +103,17 @@ function Settings() {
 
           // Populate all databases with new connection data
           try {
-          const syncResponse = await makeAuthenticatedRequest(
-            "http://localhost:3000/api/accounts/sync/holdings",
-            {
-              method: "POST",
-              data: {
-                connectionId:
-                  newConnection.connectionId || newConnection.authorizationId,
-                fullSync: true,
-              },
-            }
-          );
+            const syncResponse = await makeAuthenticatedRequest(
+              "http://localhost:3000/api/accounts/sync/holdings",
+              {
+                method: "POST",
+                data: {
+                  connectionId:
+                    newConnection.connectionId || newConnection.authorizationId,
+                  fullSync: true,
+                },
+              }
+            );
 
             console.log("Database population completed:", syncResponse.data);
             alert("Connection established and data synced successfully!");
@@ -180,13 +162,13 @@ function Settings() {
       clearInterval(pollInterval);
       clearTimeout(timeout);
     };
-  }, [user.userId]);
+  }, [userId]);
 
   // Handle SnapTrade callback (legacy - keeping for compatibility)
   useEffect(() => {
     const handleSnapTradeCallback = async () => {
       // Check if user is authenticated before handling callback
-      if (!isAuthenticated() || !user.userId) {
+      if (!userId) {
         console.log("User not authenticated, cannot handle SnapTrade callback");
         return;
       }
@@ -196,7 +178,10 @@ function Settings() {
         searchParams.get("authorizationId") ||
         searchParams.get("authorization_id") ||
         searchParams.get("authId") ||
-        searchParams.get("token");
+        searchParams.get("token") ||
+        // Some brokers / redirect flows return connection_id instead of authorizationId
+        searchParams.get("connection_id") ||
+        searchParams.get("connectionId");
 
       const sessionId =
         searchParams.get("sessionId") ||
@@ -266,7 +251,20 @@ function Settings() {
     };
 
     handleSnapTradeCallback();
-  }, [searchParams, user.userId]);
+  }, [searchParams, userId]);
+
+  // Show loading or redirect if not authenticated
+  if (!userId) {
+    return (
+      <div className="settings">
+        <div className="settings-container">
+          <h1>Settings</h1>
+          <p>Please log in to access your settings.</p>
+          <button onClick={() => navigate("/")}>Go to Home</button>
+        </div>
+      </div>
+    );
+  }
 
   const renderContent = () => {
     switch (activeTab) {

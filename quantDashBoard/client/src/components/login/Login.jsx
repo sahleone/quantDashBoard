@@ -2,10 +2,10 @@ import { useRef, useState, useContext } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 
-import UserContext from "../context/Usercontext";
+import UserContext from "../../context/Usercontext";
 
 function Login() {
-  const { user, setUser } = useContext(UserContext);
+  const { setUserId, setUserSecret, setUser } = useContext(UserContext);
   const navigate = useNavigate();
   const emailRef = useRef(null);
   const passwordRef = useRef(null);
@@ -35,25 +35,15 @@ function Login() {
       emailRef.current.value = "";
       passwordRef.current.value = "";
 
-      // Store tokens in localStorage
-      if (response.data.accessToken) {
-        localStorage.setItem("accessToken", response.data.accessToken);
-      }
-      if (response.data.refreshToken) {
-        localStorage.setItem("refreshToken", response.data.refreshToken);
-      }
-
-      // Set user info from login response
+      // When using httpOnly cookies the server should set the JWT cookies.
+      // Do not store tokens in localStorage. Keep minimal user context (id/secret).
       if (response.data.user) {
-        setUser((prev) => ({
-          ...prev,
-          firstName: response.data.user.firstName,
-          lastName: response.data.user.lastName,
-          email: response.data.user.email,
-          userId: response.data.user.userId,
-          userSecret: response.data.user.userSecret || prev.userSecret, // Keep existing userSecret if not provided
-        }));
-        console.log("User logged in:", response.data.user);
+        const u = response.data.user;
+        if (setUserId) setUserId(u.userId || u.id || null);
+        if (setUserSecret) setUserSecret(u.userSecret || u.secret || null);
+        // Also call compatibility setUser if available
+        if (setUser) setUser(u);
+        console.log("User logged in:", u);
       }
 
       // Navigate to dashboard

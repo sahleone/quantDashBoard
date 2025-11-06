@@ -433,6 +433,62 @@ class ConnectionServiceClientService {
       throw error;
     }
   }
+
+  /**
+   * Updates a brokerage authorization (connection) on SnapTrade
+   *
+   * @async
+   * @method updateBrokerageAuthorization
+   * @param {string} userId - SnapTrade user id
+   * @param {string} userSecret - SnapTrade user secret
+   * @param {string} authorizationId - Authorization id to update
+   * @param {Object} updateData - Partial object containing fields to update
+   * @returns {Promise<Object>} Updated authorization object from SnapTrade
+   */
+  async updateBrokerageAuthorization(
+    userId,
+    userSecret,
+    authorizationId,
+    updateData
+  ) {
+    try {
+      console.log(
+        "ConnectionServiceClient.updateBrokerageAuthorization called with:",
+        { userId, authorizationId, userSecret: userSecret ? "***" : "missing" }
+      );
+
+      // The SDK exposes connections.updateBrokerageAuthorization (or similar).
+      // We pass the authorization id and the patch body. If the SDK uses a
+      // different param name (e.g., `data` instead of `body`) this can be
+      // adjusted. We deliberately keep the wrapper simple.
+      const response =
+        await this.client.connections.updateBrokerageAuthorization({
+          authorizationId: authorizationId,
+          userId: userId,
+          userSecret: userSecret,
+          body: updateData,
+        });
+
+      console.log(
+        "SnapTrade API response for authorization update:",
+        response?.data || "No data"
+      );
+
+      return response.data;
+    } catch (error) {
+      console.error(
+        "ConnectionServiceClient.updateBrokerageAuthorization error:",
+        error
+      );
+      console.error("Error details:", {
+        message: error.message,
+        status: error.response?.status,
+        data: error.response?.data,
+        stack: error.stack,
+      });
+      throw error;
+    }
+  }
 }
 
 /**

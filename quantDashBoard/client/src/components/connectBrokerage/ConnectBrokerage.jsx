@@ -1,11 +1,11 @@
 import { useState, useEffect, useContext, useRef, useCallback } from "react";
 import "./ConnectBrokerage.css";
-import UserContext from "../context/Usercontext";
-import { authenticatedGet, authenticatedPost } from "../utils/apiClient";
+import UserContext from "../../context/Usercontext";
+import { authenticatedGet, authenticatedPost } from "../../utils/apiClient";
+import RefreshButton from "../refreshButton/refreshButton";
 
 function ConnectBrokerage() {
-  const { user } = useContext(UserContext);
-  const userId = user?.userId;
+  const { userId } = useContext(UserContext);
 
   const [connections, setConnections] = useState([]);
   const [connectionsSummary, setConnectionsSummary] = useState(null);
@@ -16,53 +16,51 @@ function ConnectBrokerage() {
   const [accountsLoading, setAccountsLoading] = useState(false);
   const [accountsError, setAccountsError] = useState(null);
 
-  const fetchConnections = useCallback(async () => {
-    if (!userId) {
-      return;
-    }
+  // small helper to reduce duplication between connections/accounts fetchers
+  const fetchResource = useCallback(
+    async ({ path, itemsKey, setItems, setSummary, setLoading, setError }) => {
+      if (!userId) return;
 
-    try {
-      setConnectionsLoading(true);
-      setConnectionsError(null);
+      try {
+        setLoading(true);
+        setError(null);
 
-      const response = await authenticatedGet(
-        "http://localhost:3000/api/connections"
-      );
+        // Use relative paths so the client works against whichever host is serving the API
+        const response = await authenticatedGet(path);
+        const data = response?.data || {};
+        setItems(data[itemsKey] || []);
+        setSummary(data.summary || null);
+      } catch (error) {
+        console.error(`Error fetching ${itemsKey}:`, error);
+        setError(`Unable to load ${itemsKey} right now.`);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [userId]
+  );
 
-      const fetchedConnections = response.data?.connections || [];
-      setConnections(fetchedConnections);
-      setConnectionsSummary(response.data?.summary || null);
-    } catch (error) {
-      console.error("Error fetching connections:", error);
-      setConnectionsError("Unable to load connections right now.");
-    } finally {
-      setConnectionsLoading(false);
-    }
-  }, [userId]);
+  const fetchConnections = useCallback(() => {
+    return fetchResource({
+      path: "/api/connections",
+      itemsKey: "connections",
+      setItems: setConnections,
+      setSummary: setConnectionsSummary,
+      setLoading: setConnectionsLoading,
+      setError: setConnectionsError,
+    });
+  }, [fetchResource]);
 
-  const fetchAccounts = useCallback(async () => {
-    if (!userId) {
-      return;
-    }
-
-    try {
-      setAccountsLoading(true);
-      setAccountsError(null);
-
-      const response = await authenticatedGet(
-        "http://localhost:3000/api/accounts"
-      );
-
-      console.log("Accounts response:", response.data);
-      setAccounts(response.data?.accounts || []);
-      setAccountsSummary(response.data?.summary || null);
-    } catch (error) {
-      console.error("Error fetching accounts:", error);
-      setAccountsError("Unable to load accounts right now.");
-    } finally {
-      setAccountsLoading(false);
-    }
-  }, [userId]);
+  const fetchAccounts = useCallback(() => {
+    return fetchResource({
+      path: "/api/accounts",
+      itemsKey: "accounts",
+      setItems: setAccounts,
+      setSummary: setAccountsSummary,
+      setLoading: setAccountsLoading,
+      setError: setAccountsError,
+    });
+  }, [fetchResource]);
 
   useEffect(() => {
     if (userId) {
@@ -72,15 +70,15 @@ function ConnectBrokerage() {
   }, [userId, fetchAccounts, fetchConnections]);
 
   // for the add connection button
-  const brokerToAddRef = useRef("");
+  const brokerToAddRef = useRef(null);
   const handleAddConnection = async (e) => {
     e.preventDefault(); // stop form reload
 
     try {
-      const broker = brokerToAddRef.current.value;
+      const broker = brokerToAddRef.current?.value;
 
       const response = await authenticatedPost(
-        "http://localhost:3000/api/connections/snaptrade/portal",
+        "/api/connections/snaptrade/portal",
         {
           broker: broker,
         }
@@ -92,14 +90,9 @@ function ConnectBrokerage() {
         alert("No redirect URL returned from server.");
       }
 
-      console.log("Connection created:", response.data);
+      // keep the special flag used elsewhere in the app when a portal is opened
+      window.snaptradeConnectionsBefore = -1;
 
-      // Set flag to start polling for new connections
-      window.snaptradeConnectionsBefore = -1; // Special flag to indicate portal was opened
-      // Do not attempt to POST connections/accounts here; the server stores
-      // the connection during the exchange step, and `Settings.jsx` will
-      // poll and trigger the holdings sync. We can optionally refresh the
-      // local accounts list once, but full data appears after sync.
       await fetchAccounts();
       await fetchConnections();
     } catch (error) {
@@ -107,25 +100,7 @@ function ConnectBrokerage() {
     }
   };
 
-  // for the refresh button
-  const handleRefresh = async () => {
-    console.log("Refresh");
-
-    try {
-      // refresh the accounts
-      const response = await authenticatedPost(
-        "http://localhost:3000/api/accounts/sync/holdings",
-        {}
-      );
-      console.log("Accounts refreshed:", response.data);
-
-      // Refresh accounts list
-      await fetchAccounts();
-      await fetchConnections();
-    } catch (err) {
-      console.error("Error refreshing accounts:", err);
-    }
-  };
+  // Refresh button will call the refresh endpoint and then re-fetch lists
 
   return (
     <div className="connect-brokerage">
@@ -140,6 +115,8 @@ function ConnectBrokerage() {
             <option value="ROBINHOOD">Robinhood</option>
             <option value="ETRADE">Etrade</option>
             <option value="MORGAN_STANLEY">Morgan Stanley</option>
+            <option value="WEBULL">Webull</option>
+            <option value="COINBASE">Coinbase</option>
           </select>
           <br />
           <br />
@@ -148,7 +125,12 @@ function ConnectBrokerage() {
       </div>
       {/* brokerToAddRef can be empty before mount; avoid logging undefined */}
       <br />
-      <button onClick={handleRefresh}>Refresh</button>
+      <RefreshButton
+        onSuccess={async () => {
+          await fetchAccounts();
+          await fetchConnections();
+        }}
+      />
 
       <div className="connections-list">
         <h4>
@@ -219,18 +201,12 @@ function ConnectBrokerage() {
                   <strong>Institution:</strong> {institution}
                 </p>
                 <p>
-                  <strong>Status:</strong> {statusLabel}
-                </p>
-                <p>
                   <strong>Currency:</strong> {account.currency || "USD"}
                 </p>
                 {account.balance?.total?.amount != null && (
                   <p>
-                    <strong>Balance:</strong> {account.balance.total.amount}
-                    {" "}
-                    {account.balance.total.currency ||
-                      account.currency ||
-                      ""}
+                    <strong>Balance:</strong> {account.balance.total.amount}{" "}
+                    {account.balance.total.currency || account.currency || ""}
                   </p>
                 )}
               </div>

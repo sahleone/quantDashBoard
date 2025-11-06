@@ -87,6 +87,66 @@ class SnapTradeController {
   }
 
   /**
+   * Update a connection (brokerage authorization) on SnapTrade and sync to MongoDB
+   * Expected body: { userId, userSecret, updates }
+   * URL param: :authorizationId
+   */
+  async updateConnection(req, res) {
+    try {
+      const { authorizationId } = req.params;
+      const { userId, userSecret, updates } = req.body;
+
+      if (!authorizationId) {
+        return res
+          .status(400)
+          .json({ error: "Missing authorizationId in URL" });
+      }
+
+      if (!userId || !userSecret) {
+        return res.status(400).json({ error: "Missing userId or userSecret" });
+      }
+
+      if (!updates || typeof updates !== "object") {
+        return res
+          .status(400)
+          .json({ error: "Missing or invalid updates payload" });
+      }
+
+      // Call SnapTrade to update the authorization
+      const updatedAuthorization =
+        await this.connectionService.updateBrokerageAuthorization(
+          userId,
+          userSecret,
+          authorizationId,
+          updates
+        );
+
+      // Sync relevant fields to our local Connection model
+      const existingConnection = await Connection.findOne({
+        authorizationId: authorizationId,
+      });
+
+      if (existingConnection) {
+        // Apply some common updatable fields if present
+        if (updates.status) existingConnection.status = updates.status;
+        if (updates.label) existingConnection.label = updates.label;
+        if (updates.brokerage) existingConnection.brokerage = updates.brokerage;
+        existingConnection.lastSyncDate = new Date();
+        await existingConnection.save();
+      }
+
+      return res.status(200).json({
+        message: "Connection updated successfully",
+        updatedAuthorization,
+        connection: existingConnection || null,
+      });
+    } catch (error) {
+      console.error("Error updating connection:", error);
+      res.status(500).json({ error: "Failed to update connection" });
+    }
+  }
+
+  /**
    * Sync user connections from SnapTrade to MongoDB
    */
   async syncUserConnections(req, res) {
@@ -366,12 +426,9 @@ class SnapTradeController {
         ) {
           return {
             ...symbolInput.symbol,
-            raw_symbol:
-              symbolInput.symbol.raw_symbol || symbolInput.raw_symbol,
-            exchange:
-              symbolInput.symbol.exchange || symbolInput.exchange || {},
-            currency:
-              symbolInput.symbol.currency || symbolInput.currency || {},
+            raw_symbol: symbolInput.symbol.raw_symbol || symbolInput.raw_symbol,
+            exchange: symbolInput.symbol.exchange || symbolInput.exchange || {},
+            currency: symbolInput.symbol.currency || symbolInput.currency || {},
             type: symbolInput.symbol.type || symbolInput.type || {},
           };
         }
@@ -799,7 +856,9 @@ class SnapTradeController {
         return res.status(404).json({ error: "User not found" });
       }
 
-      const connections = await Connection.find({ userId: effectiveUserId }).lean();
+      const connections = await Connection.find({
+        userId: effectiveUserId,
+      }).lean();
       const accounts = await Account.find({ userId: effectiveUserId }).lean();
 
       const accountIds = accounts.map((acc) => acc.accountId);

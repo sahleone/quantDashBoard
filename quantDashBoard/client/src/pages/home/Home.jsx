@@ -1,8 +1,8 @@
 import "./Home.css";
-import QuantDashLogo from "../assets/QuantDash.png";
+import QuantDashLogo from "../../assets/QuantDash.png";
 import { useState } from "react";
-import Signup from "../components/Signup";
-import Login from "../components/Login";
+import Signup from "../../components/Signup";
+import Login from "../../components/login/Login";
 
 function Home() {
   const [showSignup, setShowSignup] = useState(false);

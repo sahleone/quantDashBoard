@@ -159,6 +159,8 @@ class ConnectionsController {
       const connection = new Connection({
         userId: user.userId,
         connectionId: connectionDetails.id,
+        // store the authorization id that was exchanged (if present)
+        authorizationId: authorizationId || null,
         brokerageName: connectionDetails.brokerage?.name || "Unknown",
         status: status,
         isActive: status === "ACTIVE",

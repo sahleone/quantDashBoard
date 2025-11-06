@@ -77,4 +77,13 @@ router.get("/portfolio", (req, res) => {
   snapTradeController.getUserPortfolio(req, res);
 });
 
+/**
+ * Update a specific connection (brokerage authorization)
+ * PATCH /api/snaptrade/connections/:authorizationId
+ * Body: { userId, userSecret, updates }
+ */
+router.patch("/connections/:authorizationId", (req, res) => {
+  snapTradeController.updateConnection(req, res);
+});
+
 export default router;

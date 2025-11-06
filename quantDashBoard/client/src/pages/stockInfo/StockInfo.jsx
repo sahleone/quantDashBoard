@@ -1,7 +1,7 @@
 import "./StockInfo.css";
-import { useEffect, useState, useRef } from "react";
-import LineGraph from "../components/LineGraph";
-import CompanyOverview from "../components/CompanyOverview";
+import { useState } from "react";
+import LineGraph from "../../components/lineGraph/LineGraph";
+import CompanyOverview from "../../components/companyOverview/CompanyOverview";
 
 const POLYGON_API_KEY = import.meta.env.VITE_POLYGON_API_KEY;
 
@@ -21,7 +21,6 @@ const get_chart_data = async (
 function StockInfo() {
   const [ticker, setTicker] = useState("");
   const [tickerOverviewData, setTickerOverviewData] = useState(null);
-  const [chartData, setChartData] = useState(null);
   const [closePrices, setClosePrices] = useState(null);
   const [timestamps, setTimestamps] = useState(null);
 
@@ -53,7 +52,6 @@ function StockInfo() {
 
       // Fetch chart data
       const chartDataResult = await get_chart_data(ticker);
-      setChartData(chartDataResult);
       get_close_prices(chartDataResult);
       get_timestamps(chartDataResult);
     } catch (error) {

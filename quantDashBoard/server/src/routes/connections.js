@@ -14,6 +14,7 @@
 import express from "express";
 import connectionsController from "../controllers/connectionsController.js";
 import { requireAuth } from "../middleware/authmiddleware.js";
+import updateConnectionsForUser from "../utils/updateConnections.js";
 
 const router = express.Router();
 
@@ -51,7 +52,6 @@ router.get("/debug", (req, res) => {
     authHeader && authHeader.startsWith("Bearer ")
       ? authHeader.slice(7)
       : req.cookies.jwt;
-
 
   let tokenDecoded = null;
   let tokenError = null;
@@ -134,6 +134,42 @@ router.delete("/:connectionId", (req, res) => {
  */
 router.get("/health", (req, res) => {
   connectionsController.checkHealth(req, res);
+});
+
+/**
+ * Refresh Connections Data from SnapTrade
+ * POST /api/connections/refres h
+ * Body: { userId, userSecret }
+ */
+router.post("/refresh", async (req, res) => {
+  const userId = req.body.userId || req.user?.userId;
+  if (!userId) {
+    return res.status(400).json({ error: "Missing userId" });
+  }
+
+  const userSecret = req.body.userSecret || null;
+
+  try {
+    const results = await updateConnectionsForUser(userId, userSecret);
+
+    return res.status(200).json({
+      message: "Connections refreshed",
+      connections: results,
+      total: results.length,
+    });
+  } catch (err) {
+    console.error(
+      `Error refreshing connections for user ${userId}:`,
+      err?.message || err
+    );
+    return res.status(500).json({
+      error: {
+        code: "REFRESH_FAILED",
+        message: "Failed to refresh connections",
+        details: err?.message || String(err),
+      },
+    });
+  }
 });
 
 export default router;

@@ -14,6 +14,7 @@
 import express from "express";
 import accountsController from "../controllers/accountsController.js";
 import { requireAuth } from "../middleware/authmiddleware.js";
+import updateAccountsForUser from "../utils/updateAccounts.js";
 
 const router = express.Router();
 
@@ -87,6 +88,45 @@ router.post("/sync/holdings", (req, res) => {
 });
 
 /**
+ * Sync Holdings for all accounts across user's connections
+ * POST /api/sync/holdings/connections
+ * Body: { userId, userSecret, fullSync? }
+ */
+router.post("/sync/holdings/connections", async (req, res) => {
+  const userId = req.body.userId || req.user?.userId;
+  const userSecret = req.body.userSecret || req.user?.userSecret || null;
+  const fullSync = !!req.body.fullSync;
+
+  if (!userId) return res.status(400).json({ error: "Missing userId" });
+
+  try {
+    const { default: updateAccountHoldingsForUser } = await import(
+      "../utils/updateAccountHoldings.js"
+    );
+
+    const results = await updateAccountHoldingsForUser(userId, userSecret, {
+      fullSync,
+    });
+
+    return res.status(200).json({ message: "Holdings updated", results });
+  } catch (err) {
+    console.error(
+      `Error updating account holdings for user ${userId}:`,
+      err?.message || err
+    );
+    return res
+      .status(500)
+      .json({
+        error: {
+          code: "HOLDINGS_UPDATE_FAILED",
+          message: "Failed to update holdings",
+          details: err?.message || String(err),
+        },
+      });
+  }
+});
+
+/**
  * Get Position Details for Specific Symbol
  * GET /api/positions/:symbol
  * Body: { userId }
@@ -94,6 +134,45 @@ router.post("/sync/holdings", (req, res) => {
  */
 router.get("/positions/:symbol", (req, res) => {
   accountsController.getPositionDetails(req, res);
+});
+
+/**
+ * Refresh Account Data from SnapTrade
+ */
+router.post("/refresh", async (req, res) => {
+  // Prefer explicit body values but fall back to authenticated user from
+  // the requireAuth middleware. This allows the client to call the refresh
+  // endpoint without sending the userSecret in the body (jwt is used).
+  const userId = req.body.userId || req.user?.userId;
+  const userSecret = req.body.userSecret || req.user?.userSecret;
+
+  if (!userId) return res.status(400).json({ error: "Missing userId" });
+  if (!userSecret)
+    return res
+      .status(400)
+      .json({ error: "Missing userSecret (or not in JWT)" });
+
+  try {
+    const results = await updateAccountsForUser(userId, userSecret);
+
+    return res.status(200).json({
+      message: "Accounts refreshed",
+      accounts: results,
+      total: results.length,
+    });
+  } catch (err) {
+    console.error(
+      `Error refreshing accounts for user ${userId}:`,
+      err?.message || err
+    );
+    return res.status(500).json({
+      error: {
+        code: "REFRESH_FAILED",
+        message: "Failed to refresh accounts",
+        details: err?.message || String(err),
+      },
+    });
+  }
 });
 
 export default router;

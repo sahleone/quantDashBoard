@@ -15,10 +15,16 @@ const connectionSchema = new mongoose.Schema({
     required: true,
     unique: true,
   },
+  // SnapTrade authorization id returned immediately after portal completion.
+  // This is optional but useful to store and index for lookup. Make the index
+  // sparse so missing values don't cause duplicate-null issues.
+  authorizationId: {
+    type: String,
+  },
   brokerageName: {
-      type: String,
-      required: true,
-    },
+    type: String,
+    required: true,
+  },
   status: {
     type: String,
     enum: ["ACTIVE", "INACTIVE", "PENDING", "ERROR"],
@@ -44,7 +50,10 @@ const connectionSchema = new mongoose.Schema({
 
 // Create indexes for efficient querying
 connectionSchema.index({ userId: 1, connectionId: 1 });
-connectionSchema.index({ authorizationId: 1 });
+// Use a sparse index so documents without an authorizationId (null/undefined)
+// are not included in the index. This prevents duplicate-key errors when
+// multiple documents lack this field.
+connectionSchema.index({ authorizationId: 1 }, { sparse: true });
 
 // Update the updatedAt field before saving
 connectionSchema.pre("save", function (next) {

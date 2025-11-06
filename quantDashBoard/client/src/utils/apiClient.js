@@ -24,11 +24,10 @@ const API_BASE =
  * @returns {object} Axios configuration with authentication headers
  */
 export const createAuthenticatedRequest = (url, options = {}) => {
-  const token = localStorage.getItem("accessToken");
-
-  if (!token) {
-    throw new Error("No access token found. Please log in.");
-  }
+  // When using httpOnly cookies for JWT storage we do not need to attach a
+  // client-side Authorization header. The browser will send cookies when
+  // `withCredentials: true` is set. Keep header support if caller passes one
+  // explicitly in options.headers.
 
   // If a relative path is provided (starts with '/'), prefix with API_BASE
   const fullUrl =
@@ -39,7 +38,6 @@ export const createAuthenticatedRequest = (url, options = {}) => {
     withCredentials: true,
     headers: {
       ...options.headers,
-      Authorization: `Bearer ${token}`,
     },
     ...options,
   };
@@ -96,8 +94,14 @@ export const authenticatedDelete = async (url, options = {}) => {
  * @returns {boolean} True if token exists, false otherwise
  */
 export const isAuthenticated = () => {
-  const token = localStorage.getItem("accessToken");
-  return !!token;
+  // With cookie-based auth we cannot reliably detect authentication client-side
+  // (httpOnly cookies are not readable from JS). Consumers should use
+  // `UserContext.userId` to check authentication state. Keep this function for
+  // backward compatibility but return `false` to encourage context usage.
+  console.warn(
+    "isAuthenticated() is deprecated for cookie-based auth. Use UserContext instead."
+  );
+  return false;
 };
 
 /**
@@ -105,5 +109,8 @@ export const isAuthenticated = () => {
  * @returns {string|null} The access token or null if not found
  */
 export const getAccessToken = () => {
-  return localStorage.getItem("accessToken");
+  console.warn(
+    "getAccessToken() is not available when using httpOnly cookie-based auth."
+  );
+  return null;
 };

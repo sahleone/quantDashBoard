@@ -5,7 +5,7 @@ import axios from "axios";
 
 function Signup() {
   const navigate = useNavigate();
-  const { user, setUser } = useContext(UserContext);
+  const { setUserId, setUserSecret, setUser } = useContext(UserContext);
   const firstNameRef = useRef(null);
   const lastNameRef = useRef(null);
   const emailRef = useRef(null);
@@ -41,22 +41,14 @@ function Signup() {
       emailRef.current.value = "";
       passwordRef.current.value = "";
 
-      // Store access token in localStorage
-      if (response.data.accessToken) {
-        localStorage.setItem("accessToken", response.data.accessToken);
-      }
-
-      // Set user info from signup response
+      // Server should set JWT cookies on signup/login. Do not store tokens
+      // in localStorage. Populate minimal user context (id/secret) instead.
       if (response.data.user) {
-        setUser((prev) => ({
-          ...prev,
-          userId: response.data.user.userId,
-          firstName: response.data.user.firstName,
-          lastName: response.data.user.lastName,
-          email: response.data.user.email,
-          userSecret: response.data.user.userSecret || prev.userSecret, // Keep existing userSecret if not provided
-        }));
-        console.log("User signed up:", response.data.user);
+        const u = response.data.user;
+        if (setUserId) setUserId(u.userId || u.id || null);
+        if (setUserSecret) setUserSecret(u.userSecret || u.secret || null);
+        if (setUser) setUser(u);
+        console.log("User signed up:", u);
       }
 
       navigate("/dashboard");

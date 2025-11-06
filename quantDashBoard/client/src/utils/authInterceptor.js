@@ -28,44 +28,42 @@ const processQueue = (error, token = null) => {
   failedQueue = [];
 };
 
-// Create axios instance for token refresh
+// Resolve API base from Vite env when available so the refresh call targets
+// the same backend the rest of the client uses.
+const API_BASE =
+  (import.meta && import.meta.env && import.meta.env.VITE_API_BASE) ||
+  "http://localhost:3000";
 const refreshAxios = axios.create({
-  baseURL: "http://localhost:3000",
+  baseURL: API_BASE,
   withCredentials: true,
 });
 
-/**
- * Refresh access token using refresh token
- */
 const refreshToken = async () => {
   try {
-    // Prefer sending refresh token explicitly from storage to avoid
-    // cross-site cookie delivery issues during local dev.
-    const storedRefresh = localStorage.getItem("refreshToken");
-    const response = await refreshAxios.post("/api/auth/refresh", {
-      refreshToken: storedRefresh,
-    });
-    const newAccessToken = response.data.accessToken;
+    // Server should manage refresh token via httpOnly cookie. We simply
+    // call the refresh endpoint with credentials and let the server set
+    // any new cookies. If the server returns a new access token in the
+    // body, we return it; otherwise return null to indicate cookies are used.
+    const response = await refreshAxios.post("/api/auth/refresh");
 
-    // Update localStorage with new token
-    localStorage.setItem("accessToken", newAccessToken);
+    const newAccessToken = response?.data?.accessToken ?? null;
 
+    // Note: when using httpOnly cookies you typically don't need to store
+    // the token client-side. The server will set the cookie. Return any
+    // token the server includes for backwards compatibility.
     return newAccessToken;
   } catch (error) {
     console.error("Token refresh failed:", error);
 
-    // Clear invalid tokens and redirect to login
-    localStorage.removeItem("accessToken");
-    localStorage.removeItem("refreshToken");
-    window.location.href = "/login";
+    // Do NOT perform a hard redirect here; let the app decide how to handle
+    // refresh failure (e.g. show a login modal or navigate via router). A
+    // hard redirect to "/login" caused navigation to the Vite dev server
+    // origin (http://localhost:5173/login) during development.
 
     throw error;
   }
 };
 
-/**
- * Setup axios interceptors for automatic token refresh
- */
 export const setupAuthInterceptors = () => {
   console.log("Setting up auth interceptors...");
 
@@ -84,26 +82,17 @@ export const setupAuthInterceptors = () => {
         (endpoint) => config.url && config.url.includes(endpoint)
       );
 
-      // Only add token if not already present, if we have one, and if it's not a public endpoint
-      if (!config.headers.Authorization && !isPublicEndpoint) {
-        const token = localStorage.getItem("accessToken");
-        if (token) {
-          config.headers.Authorization = `Bearer ${token}`;
-          console.log("Auth interceptor: Added token to request", config.url);
-        } else {
-          console.log(
-            "Auth interceptor: No token found for request",
-            config.url
-          );
-        }
-      } else if (isPublicEndpoint) {
+      // For cookie-based auth we don't add an Authorization header here.
+      // If a token header is already present, keep it. Public endpoints are
+      // allowed through without modification.
+      if (isPublicEndpoint) {
         console.log(
           "Auth interceptor: Skipping token for public endpoint",
           config.url
         );
       } else {
         console.log(
-          "Auth interceptor: Token already present for request",
+          "Auth interceptor: Proceeding (cookies will be sent)",
           config.url
         );
       }
@@ -130,7 +119,11 @@ export const setupAuthInterceptors = () => {
             failedQueue.push({ resolve, reject });
           })
             .then((token) => {
-              originalRequest.headers.Authorization = `Bearer ${token}`;
+              // If refresh returned a token, attach it. Otherwise retry and
+              // rely on cookies being sent by the browser.
+              if (token) {
+                originalRequest.headers.Authorization = `Bearer ${token}`;
+              }
               return axios(originalRequest);
             })
             .catch((err) => {
@@ -145,8 +138,11 @@ export const setupAuthInterceptors = () => {
           const newToken = await refreshToken();
           processQueue(null, newToken);
 
-          // Retry the original request with new token
-          originalRequest.headers.Authorization = `Bearer ${newToken}`;
+          // Retry the original request. If server returned a token, add it
+          // to the header; otherwise rely on cookies.
+          if (newToken) {
+            originalRequest.headers.Authorization = `Bearer ${newToken}`;
+          }
           return axios(originalRequest);
         } catch (refreshError) {
           processQueue(refreshError, null);
@@ -165,7 +161,10 @@ export const setupAuthInterceptors = () => {
  * Clear authentication data
  */
 export const clearAuth = () => {
-  localStorage.removeItem("accessToken");
-  // Clear any pending refresh attempts
+  // When using cookie-based auth there is no client-side token to remove.
+  // Clear any pending refresh attempts and redirect to login.
   processQueue(new Error("User logged out"), null);
+  // Do not navigate here. Components should call clearAuth() and then
+  // perform navigation with the router (useNavigate) so the SPA navigation
+  // occurs without a full page reload and uses the correct route origin.
 };

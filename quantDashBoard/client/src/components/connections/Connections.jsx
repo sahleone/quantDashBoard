@@ -1,4 +1,4 @@
-import ConnectBrokerage from "./ConnectBrokerage";
+import ConnectBrokerage from "../connectBrokerage/ConnectBrokerage";
 
 const Connections = () => {
   return <ConnectBrokerage />;

@@ -19,6 +19,8 @@ import UserServiceClientService from "../clients/userClient.js";
 
 const SECRET = config.jwt.secret;
 const REFRESH_SECRET = config.jwt.refreshSecret;
+// Default access token cookie lifetime (ms) when a numeric expiry isn't available
+const ACCESS_TOKEN_DEFAULT_MS = 15 * 60 * 1000;
 
 /**
  * Authentication Controller
@@ -56,7 +58,9 @@ class AuthController {
     // If it's a plain number string, treat similar to numeric branch
     if (/^\d+$/.test(trimmed)) {
       const numericValue = parseInt(trimmed, 10);
-      return numericValue > 60 * 60 ? Math.floor(numericValue / 1000) : numericValue;
+      return numericValue > 60 * 60
+        ? Math.floor(numericValue / 1000)
+        : numericValue;
     }
 
     // Fallback to passing through strings like "15m"
@@ -215,14 +219,29 @@ class AuthController {
       const accessToken = this.createAccessToken(user._id);
       const refreshToken = this.createRefreshToken(user._id);
 
-      // Set refresh token as httpOnly cookie
-      // Use SameSite=None so the cookie is sent on cross-site XHR (5173 -> 3000)
-      // Secure is required when SameSite=None. Modern browsers treat localhost as a secure context.
+      // Set refresh token and access token as httpOnly cookies so the
+      // browser will send them automatically and server middleware can
+      // read `req.cookies.jwt` for authentication.
+      // Note: for local development the frontend and backend run on
+      // different ports (e.g. 5173 -> 3000). To allow the browser to
+      // send cookies on cross-site XHR/POST requests during development
+      // we set `sameSite: 'none'`. `secure` remains enabled for
+      // production but disabled locally.
       res.cookie("refreshToken", refreshToken, {
         httpOnly: true,
-        secure: true,
+        secure: process.env.NODE_ENV === "production",
         sameSite: "none",
         maxAge: this.refreshTokenExpiry,
+      });
+
+      res.cookie("jwt", accessToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "none",
+        maxAge:
+          typeof this.accessTokenExpiry === "number"
+            ? this.accessTokenExpiry * 1000
+            : ACCESS_TOKEN_DEFAULT_MS,
       });
 
       res.status(201).json({
@@ -270,7 +289,6 @@ class AuthController {
   async login(req, res) {
     try {
       const { email, password } = req.body;
-
       // Validate required parameters
       if (!email || !password) {
         return res.status(400).json({
@@ -302,11 +320,23 @@ class AuthController {
       // Set refresh token as httpOnly cookie
       // Use SameSite=None so the cookie is sent on cross-site XHR (5173 -> 3000)
       // Secure is required when SameSite=None. Modern browsers treat localhost as a secure context.
+      // For local development allow non-secure cookies so localhost works.
       res.cookie("refreshToken", refreshToken, {
         httpOnly: true,
-        secure: true,
+        secure: process.env.NODE_ENV === "production",
         sameSite: "none",
         maxAge: this.refreshTokenExpiry,
+      });
+
+      // Also set the access token as an httpOnly cookie named 'jwt'
+      res.cookie("jwt", accessToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "none",
+        maxAge:
+          typeof this.accessTokenExpiry === "number"
+            ? this.accessTokenExpiry * 1000
+            : ACCESS_TOKEN_DEFAULT_MS,
       });
 
       // User data will be passed in req.body for subsequent requests
@@ -354,9 +384,20 @@ class AuthController {
    */
   async refresh(req, res) {
     try {
-      const refreshToken = req.cookies.refreshToken || req.body.refreshToken;
+      // Be defensive: req.cookies may be undefined if cookie-parser
+      // middleware wasn't applied for some reason or the request
+      // didn't include cookies. Use optional chaining to avoid
+      // throwing when accessing refreshToken.
+      const refreshToken =
+        req?.cookies?.refreshToken ?? req?.body?.refreshToken;
 
       if (!refreshToken) {
+        console.warn(
+          "Refresh token not provided. req.cookies=",
+          req?.cookies,
+          "req.body=",
+          req?.body
+        );
         return res.status(401).json({
           error: {
             code: "UNAUTHORIZED",
@@ -379,11 +420,30 @@ class AuthController {
 
       const accessToken = this.createAccessToken(user._id);
 
+      // Also set the access token as an httpOnly cookie so subsequent
+      // requests send it automatically and middleware can validate it.
+      res.cookie("jwt", accessToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "none",
+        maxAge:
+          typeof this.accessTokenExpiry === "number"
+            ? this.accessTokenExpiry * 1000
+            : ACCESS_TOKEN_DEFAULT_MS,
+      });
+
       res.status(200).json({
         accessToken: accessToken,
       });
     } catch (error) {
-      console.error("Token refresh error:", error);
+      console.error(
+        "Token refresh error:",
+        error,
+        "req.cookies=",
+        req?.cookies,
+        "req.body=",
+        req?.body
+      );
       res.status(401).json({
         error: {
           code: "UNAUTHORIZED",
@@ -410,7 +470,7 @@ class AuthController {
   logout(req, res) {
     res.cookie("refreshToken", "", {
       httpOnly: true,
-      secure: true,
+      secure: process.env.NODE_ENV === "production",
       sameSite: "none",
       maxAge: 0,
     });
@@ -490,10 +550,12 @@ class AuthController {
    */
   async updateProfile(req, res) {
     try {
-      const user = req.body.user;
-      const updateData = req.body;
+      // Prefer the authenticated user from middleware (req.user).
+      // Fall back to req.body.user if present for backward compatibility.
+      let user = req.user || req.body.user;
+      const updateData = req.body || {};
 
-      // Validate user exists
+      // Validate user exists (either from middleware or in body)
       if (!user) {
         return res.status(401).json({
           error: {
@@ -504,8 +566,15 @@ class AuthController {
       }
 
       // Validate that at least one field is being updated
-      const { password, _id, userId, userSecret, ...allowedUpdates } =
-        updateData;
+      // Exclude sensitive/unwritable fields including nested `user` object if provided
+      const {
+        password,
+        _id,
+        userId,
+        userSecret,
+        user: bodyUser,
+        ...allowedUpdates
+      } = updateData;
       if (Object.keys(allowedUpdates).length === 0) {
         return res.status(400).json({
           error: {
