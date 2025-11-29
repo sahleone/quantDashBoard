@@ -3,18 +3,57 @@ import { useState } from "react";
 import LineGraph from "../../components/lineGraph/LineGraph";
 import CompanyOverview from "../../components/companyOverview/CompanyOverview";
 
-const POLYGON_API_KEY = import.meta.env.VITE_POLYGON_API_KEY;
+// Resolve backend API base (use Vite env when present, otherwise localhost:3000)
+const API_BASE =
+  (import.meta && import.meta.env && import.meta.env.VITE_API_BASE) ||
+  "http://localhost:3000";
 
-const get_chart_data = async (
-  ticker,
-  from = "2024-01-01",
-  to = "2024-12-31",
-  timespan = "day"
-) => {
-  const chart_data = `https://api.polygon.io/v2/aggs/ticker/${ticker}/range/1/${timespan}/${from}/${to}?adjusted=true&sort=asc&limit=120&apiKey=${POLYGON_API_KEY}`;
+// Using Alpha Vantage for ticker data
+// We proxy requests through the server so the API key is stored server-side.
+
+const get_chart_data = async (ticker, from, to, timespan = "day") => {
+  const pad = (n) => n.toString().padStart(2, "0");
+  const formatDate = (d) =>
+    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+
+  const today = new Date();
+  const defaultTo = formatDate(today);
+  const twoYearsAgo = new Date(today);
+  // Keep default range to at most two years previous (free tier requirement)
+  twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
+  const defaultFrom = formatDate(twoYearsAgo);
+
+  const fromDate = defaultFrom;
+  const toDate = defaultTo;
+
+  // Call the server-side Alpha Vantage proxy. We request daily series and then
+  // the server will transform/filter the response into the shape the client expects.
+  const chart_data = `${API_BASE}/api/alphavantage/daily/${encodeURIComponent(
+    ticker
+  )}?from=${encodeURIComponent(fromDate)}&to=${encodeURIComponent(
+    toDate
+  )}&outputsize=full`;
   const response = await fetch(chart_data);
-  const data = await response.json();
 
+  // Surface clearer error when API returns non-2xx (e.g. 401 Unauthorized)
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(`Alpha Vantage API error ${response.status}: ${text}`);
+  }
+  const contentType = response.headers.get("content-type") || "";
+  if (!contentType.includes("application/json")) {
+    // Likely an HTML error page (e.g. dev server served index.html or a 404 page)
+    const text = await response.text().catch(() => "");
+    console.error(
+      "Alpha Vantage daily endpoint returned non-JSON response:",
+      text
+    );
+    throw new Error(
+      `Alpha Vantage daily returned non-JSON content: ${text.slice(0, 200)}`
+    );
+  }
+
+  const data = await response.json();
   return data;
 };
 
@@ -25,11 +64,29 @@ function StockInfo() {
   const [timestamps, setTimestamps] = useState(null);
 
   const get_close_prices = (chartData) => {
+    if (!chartData || !Array.isArray(chartData.results)) {
+      console.warn(
+        "get_close_prices: chartData.results is missing or invalid",
+        chartData
+      );
+      setClosePrices([]);
+      return;
+    }
+
     const closePrices = chartData.results.map((item) => item.c);
     setClosePrices(closePrices);
   };
 
   const get_timestamps = (chartData) => {
+    if (!chartData || !Array.isArray(chartData.results)) {
+      console.warn(
+        "get_timestamps: chartData.results is missing or invalid",
+        chartData
+      );
+      setTimestamps([]);
+      return;
+    }
+
     const timestamps = chartData.results.map((item) => item.t);
     const dates = timestamps.map((ms) => new Date(ms).toLocaleString());
     setTimestamps(dates);
@@ -42,16 +99,42 @@ function StockInfo() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const ticker_overview = `https://api.polygon.io/v3/reference/tickers/${ticker}?apiKey=${POLYGON_API_KEY}`;
+    // Use server proxy for ticker overview so the API key is never exposed in the client
+    const ticker_overview = `${API_BASE}/api/alphavantage/overview/${encodeURIComponent(
+      ticker
+    )}`;
 
     try {
       // Fetch ticker overview
       const overviewResponse = await fetch(ticker_overview);
+      if (!overviewResponse.ok) {
+        const text = await overviewResponse.text().catch(() => "");
+        throw new Error(
+          `Alpha Vantage API overview error ${overviewResponse.status}: ${text}`
+        );
+      }
+      const overviewContentType =
+        overviewResponse.headers.get("content-type") || "";
+      if (!overviewContentType.includes("application/json")) {
+        const text = await overviewResponse.text().catch(() => "");
+        console.error(
+          "Alpha Vantage overview returned non-JSON response:",
+          text
+        );
+        throw new Error(
+          `Alpha Vantage overview returned non-JSON content: ${text.slice(
+            0,
+            200
+          )}`
+        );
+      }
+
       const overviewData = await overviewResponse.json();
       setTickerOverviewData(overviewData);
 
       // Fetch chart data
       const chartDataResult = await get_chart_data(ticker);
+      // chartDataResult may contain an error payload if upstream failed; the getters are defensive
       get_close_prices(chartDataResult);
       get_timestamps(chartDataResult);
     } catch (error) {

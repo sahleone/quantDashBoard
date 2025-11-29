@@ -86,4 +86,45 @@ router.patch("/connections/:authorizationId", (req, res) => {
   snapTradeController.updateConnection(req, res);
 });
 
+/**
+ * Sync account option holdings from SnapTrade
+ * POST /api/snaptrade/sync/options/holdings
+ * Body or Query: { userId, userSecret, accountId }
+ */
+router.post("/sync/options/holdings", (req, res) => {
+  snapTradeController.syncAccountOptionHoldings(req, res);
+});
+
+/**
+ * Retrieve options chain from SnapTrade
+ * GET /api/snaptrade/options/chain?symbol=XYZ
+ */
+router.get("/options/chain", (req, res) => {
+  snapTradeController.getOptionsChain(req, res);
+});
+
+/**
+ * Dev-only route to resolve a ticker to the SnapTrade universal symbol
+ * GET /api/snaptrade/debug/resolve?ticker=PLTY
+ */
+router.get("/debug/resolve", (req, res) => {
+  snapTradeController.resolveTicker(req, res);
+});
+
+/**
+ * Fetch option holdings from SnapTrade (pass-through, no DB persistence)
+ * GET /api/snaptrade/options/holdings?userId=...&userSecret=...&accountId=...
+ */
+router.get("/options/holdings", (req, res) => {
+  snapTradeController.getAccountOptionHoldings(req, res);
+});
+
+/**
+ * Get option holdings from our DB; if none for today, call SnapTrade and persist
+ * GET /api/snaptrade/options/dbholdings?accountId=...
+ */
+router.get("/options/dbholdings", (req, res) => {
+  snapTradeController.getAccountOptionHoldingsFromDb(req, res);
+});
+
 export default router;

@@ -4,6 +4,7 @@ import AccountHoldings from "../models/AccountHoldings.js";
 import AccountBalances from "../models/AccountBalances.js";
 import AccountPositions from "../models/AccountPositions.js";
 import AccountOrders from "../models/AccountOrders.js";
+import Activities from "../models/AccountActivities.js";
 import User from "../models/Users.js";
 import ConnectionModel from "../models/Connection.js";
 import AccountServiceClientService from "../clients/accountClient.js";
@@ -165,12 +166,27 @@ export default async function updateAccountHoldingsForUser(
         );
       }
 
+      let activitiesResult = null;
+      if (Array.isArray(syncData.activities) && syncData.activities.length) {
+        activitiesResult = await upsertWithDuplicateCheck(
+          Activities,
+          syncData.activities,
+          UNIQUE_FIELD_MAPPINGS.Activities,
+          "activities"
+        );
+        console.log(
+          `Activities sync result for account ${accountId}:`,
+          activitiesResult
+        );
+      }
+
       results.push({
         accountId,
         status: "success",
         holdings: holdingsResult || null,
         positions: positionsResult || null,
         orders: ordersResult || null,
+        activities: activitiesResult || null,
       });
     } catch (err) {
       console.error(

@@ -21,7 +21,7 @@ The goal of this project is to help users understand portfolio performance and r
 • Full-Stack Development using the MERN stack (MongoDB, Express.js, React.js, Node.js)
 • Authentication with JWT to ensure secure user access
 • REST API Design for handling portfolios, user sessions, and analytics
-• Real-Time Data Integration from APIs like Poligon, SnapTrade
+• Real-Time Data Integration from APIs like Alpha Vantage, SnapTrade
 • Financial Metrics such as CAGR, Sharpe Ratio, Beta, and Max Drawdown
 • Interactive Visualization of performance, volatility, correlation, and factor exposures
 
@@ -43,14 +43,13 @@ The goal of this project is to help users understand portfolio performance and r
 - React.js
 - Node.js
 - JWT Authentication
-- APIs: Polygon, SnapTrade
+- APIs: Alpha Vantage, SnapTrade
 
 ## Planned Features
 
 - Dividend tracking
 - Cost basis tracking
 - Factor analysis
-
 
 🔍 Learning Highlights
 • Built modular, scalable APIs

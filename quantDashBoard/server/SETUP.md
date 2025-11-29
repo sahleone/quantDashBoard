@@ -13,7 +13,7 @@ DATABASE_URL=mongodb://localhost:27017/quantDashboard
 
 # SnapTrade Configuration
 SNAPTRADE_CLIENT_ID=your_snaptrade_client_id_here
-SNAPTRADE_CONSUMER_SECRET=your_snaptrade_consumer_secret_here
+SNAPTRADE_CONSUMER_KEY=your_snaptrade_consumer_key_here
 ```
 
 ## Prerequisites
@@ -57,5 +57,5 @@ If you get a "DATABASE_URL undefined" error:
 For SnapTrade configuration:
 
 1. Sign up for a SnapTrade account
-2. Get your Client ID and Consumer Secret from the SnapTrade dashboard
+2. Get your Client ID and Consumer Key from the SnapTrade dashboard
 3. Add them to your `.env` file

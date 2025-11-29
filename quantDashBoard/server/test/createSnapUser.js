@@ -7,7 +7,7 @@
     node test/createSnapUser.js <userId>
 
   Note: This will call the SnapTrade API using the SnapTrade client configured
-  in the app (ensure SNAPTRADE_CLIENT_ID and SNAPTRADE_CONSUMER_SECRET are
+  in the app (ensure SNAPTRADE_CLIENT_ID and SNAPTRADE_CONSUMER_KEY are
   available in your environment when running).
 */
 

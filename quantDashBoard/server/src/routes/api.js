@@ -17,6 +17,7 @@ import accountsRoutes from "./accounts.js";
 import metricsRoutes from "./metrics.js";
 import userRoutes from "./user.js";
 import snapTradeRoutes from "./snapTrade.js";
+import alphavantageProxy from "./alphavantageProxy.js";
 
 const router = express.Router();
 
@@ -34,6 +35,11 @@ router.use("/accounts", accountsRoutes);
 
 // SnapTrade data synchronization routes
 router.use("/snaptrade", snapTradeRoutes);
+
+// Alpha Vantage proxy routes — server-side API key forwarding
+// Keep the old /massive path as an alias for backward compatibility
+router.use("/alphavantage", alphavantageProxy);
+router.use("/massive", alphavantageProxy);
 
 // Portfolio analytics and metrics routes
 router.use("/", metricsRoutes);

@@ -130,6 +130,64 @@ class AccountServiceClientService {
   }
 
   /**
+   * Fetch a single page of account activities from SnapTrade.
+   * Returns the raw page object from the SDK which should include `data` and `pagination`.
+   */
+  async listAccountActivitiesPage(
+    userId,
+    userSecret,
+    accountId,
+    offset = 0,
+    limit = 1000,
+    startDate = null,
+    endDate = null,
+    type = "BUY,SELL,DIVIDEND"
+  ) {
+    const params = {
+      accountId: accountId,
+      userId: userId,
+      userSecret: userSecret,
+      offset: offset,
+      limit: limit,
+      type: "",
+    };
+
+    let types = [
+      "BUY",
+      "SELL",
+      "DIVIDEND",
+      "CONTRIBUTION",
+      "WITHDRAWAL",
+      "REI",
+      "STOCK_DIVIDEND",
+      "INTEREST",
+      "FEE",
+      "OPTIONEXPIRATION",
+      "OPTIONEXERCISE",
+      "OPTIONASSIGNMENT",
+      "TRANSFER",
+    ];
+
+    let typeSplit = type.split(",");
+    for (const t of typeSplit) {
+      if (types.includes(t)) {
+        params.type += t + ",";
+      } else {
+        console.log(`Invalid type: ${t}`);
+      }
+    }
+    params.type = params.type.slice(0, -1);
+
+    if (startDate) params.startDate = startDate;
+    if (endDate) params.endDate = endDate;
+
+    const response = await this.client.accountInformation.getAccountActivities(
+      params
+    );
+    return response.data || {};
+  }
+
+  /**
    * Transforms SnapTrade holdings data for MongoDB AccountHoldings model
    *
    * Converts SnapTrade API response format to match the AccountHoldings schema
@@ -309,30 +367,7 @@ class AccountServiceClientService {
    * @param {string} accountId
    * @returns {Promise<Object>} RateOfReturnResponse from SnapTrade
    */
-  async getUserAccountReturnRates(userId, userSecret, accountId) {
-    try {
-      const response =
-        await this.client.accountInformation.getUserAccountReturnRates({
-          accountId: accountId,
-          userId: userId,
-          userSecret: userSecret,
-        });
-      return response.data;
-    } catch (error) {
-      console.error(
-        "AccountServiceClient.getUserAccountReturnRates error:",
-        error
-      );
-      // Log expanded SDK response details including headers for easier debugging
-      console.error("SDK error details:", {
-        message: error.message,
-        status: error.response?.status,
-        headers: error.response?.headers,
-        data: error.response?.data,
-      });
-      throw error;
-    }
-  }
+  // getUserAccountReturnRates removed — SnapTrade return rates feature is no longer used.
 
   /**
    * Transforms SnapTrade positions data for MongoDB AccountPositions model
@@ -869,6 +904,11 @@ class AccountServiceClientService {
 
     params.type = params.type.slice(0, -1);
 
+    // Allow a configurable max number of pages to guard against runaway
+    // requests and excessive memory usage. Default is 50 pages (50 * 1000 = 50k
+    // items) but you can override with the MAX_ACTIVITY_PAGES env var.
+    const MAX_ACTIVITY_PAGES = 1000;
+
     while (hasMorePages) {
       if (startDate) {
         params.startDate = startDate;
@@ -878,8 +918,26 @@ class AccountServiceClientService {
         params.endDate = endDate;
       }
 
-      const response =
-        await this.client.accountInformation.getAccountActivities(params);
+      let response;
+      try {
+        // Call SnapTrade SDK for account activities
+        response = await this.client.accountInformation.getAccountActivities(
+          params
+        );
+      } catch (err) {
+        // Log rich context to help debug 404s from upstream
+        console.error("Error calling SnapTrade getAccountActivities:", {
+          message: err?.message,
+          status: err?.response?.status,
+          url: err?.response?.config?.url || null,
+          method: err?.response?.config?.method || null,
+          paramsSent: params,
+          responseData: err?.response?.data || null,
+        });
+
+        // Re-throw so callers (controllers) can handle/return a proper error
+        throw err;
+      }
 
       const page = response.data || {};
       const activities = Array.isArray(page.data) ? page.data : [];
@@ -900,10 +958,10 @@ class AccountServiceClientService {
         params.count++;
         await delay(500);
       }
-      if (params.count > 10) {
+      if (params.count >= MAX_ACTIVITY_PAGES) {
         hasMorePages = false;
         console.log(
-          `Reached self-imposed limit of 10 pages, stopping... cuz WTF`
+          `Reached self-imposed limit of ${MAX_ACTIVITY_PAGES} pages, stopping to avoid excessive paging.`
         );
       }
     }
@@ -928,22 +986,47 @@ class AccountServiceClientService {
    * await Activities.insertMany(transformedActivities);
    */
   transformActivitiesForMongoDB(activities, accountId, userId) {
-    return activities.map((activity) => ({
-      accountId: accountId,
-      userId: userId,
-      activityId: activity.id,
-      type: activity.type,
-      date: activity.date ? new Date(activity.date) : null,
-      description: activity.description,
-      symbol: activity.symbol?.symbol || activity.symbol,
-      quantity: activity.quantity,
-      price: activity.price,
-      amount: activity.amount,
-      currency: activity.currency?.code || activity.currency,
-      fees: activity.fees,
-      netAmount: activity.net_amount,
-      createdAt: new Date(),
-    }));
+    return activities.map((activity) => {
+      const dateVal = activity.trade_date || activity.date || null;
+      const quantityVal = activity.units ?? activity.quantity ?? null;
+      const feeVal = activity.fee ?? activity.fees ?? null;
+      const netAmountVal = activity.net_amount ?? activity.netAmount ?? null;
+
+      return {
+        accountId: accountId,
+        userId: userId,
+        activityId: activity.id,
+        externalReferenceId:
+          activity.external_reference_id ||
+          activity.externalReferenceId ||
+          null,
+        type: activity.type,
+        // normalize to `date` field
+        date: dateVal ? new Date(dateVal) : null,
+        trade_date: activity.trade_date ? new Date(activity.trade_date) : null,
+        settlement_date: activity.settlement_date
+          ? new Date(activity.settlement_date)
+          : null,
+        description: activity.description,
+        symbol: activity.symbol?.symbol || activity.symbol || null,
+        symbolObj: activity.symbol || null,
+        option_symbol: activity.option_symbol || null,
+        units: activity.units ?? null,
+        quantity: quantityVal,
+        price: activity.price ?? null,
+        amount: activity.amount ?? null,
+        currency: activity.currency?.code || activity.currency || null,
+        currencyObj: activity.currency || null,
+        fee: activity.fee ?? null,
+        fees: feeVal,
+        fx_rate: activity.fx_rate ?? null,
+        option_type: activity.option_type ?? null,
+        institution: activity.institution ?? null,
+        netAmount: netAmountVal,
+        raw: activity,
+        createdAt: new Date(),
+      };
+    });
   }
 
   /**

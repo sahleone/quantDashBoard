@@ -69,13 +69,55 @@ function ConnectBrokerage() {
     }
   }, [userId, fetchAccounts, fetchConnections]);
 
-  // for the add connection button
-  const brokerToAddRef = useRef(null);
+  // dropdown state for the add connection button (basic native select)
+  const [selectedBroker, setSelectedBroker] = useState("ROBINHOOD");
+
+  // list of brokers used to render the custom menu
+  const BROKERS = [
+    { value: "ROBINHOOD", label: "Robinhood" },
+    { value: "ETRADE", label: "Etrade" },
+    { value: "MORGAN_STANLEY", label: "Morgan Stanley" },
+    { value: "WEBULL", label: "Webull" },
+    { value: "COINBASE", label: "Coinbase" },
+    { value: "FIDELITY", label: "Fidelity" },
+    { value: "KRAKEN", label: "Kraken" },
+    { value: "AJ-BELL", label: "AJ Bell" },
+    { value: "ALPACA", label: "Alpaca" },
+    { value: "ALPACA-PAPER", label: "Alpaca (Paper)" },
+    { value: "BINANCE", label: "Binance" },
+    { value: "BUX", label: "BUX" },
+    { value: "CHASE", label: "Chase" },
+    { value: "COMMSEC", label: "CommSec" },
+    { value: "DEGIRO", label: "DeGiro" },
+    { value: "EMPOWER", label: "Empower" },
+    { value: "INTERACTIVE-BROKERS-FLEX", label: "Interactive Brokers (Flex)" },
+    { value: "MOOMOO", label: "Moomoo" },
+    { value: "PUBLIC", label: "Public" },
+    { value: "QUESTRADE", label: "Questrade" },
+    { value: "SCHWAB", label: "Schwab" },
+    { value: "STAKEAUS", label: "Stake (AU)" },
+    { value: "TASTYTRADE", label: "Tastytrade" },
+    { value: "TD-DIRECT-INVESTING", label: "TD Direct Investing" },
+    { value: "TRADESTATION", label: "TradeStation" },
+    { value: "TRADESTATION-SIM", label: "TradeStation (Sim)" },
+    { value: "TRADIER", label: "Tradier" },
+    { value: "TRADING212", label: "Trading212" },
+    { value: "TRADING212-PRACTICE", label: "Trading212 (Practice)" },
+    { value: "UPSTOX", label: "Upstox" },
+    { value: "VANGUARD", label: "Vanguard" },
+    { value: "WEALTHSIMPLETRADE", label: "Wealthsimple Trade" },
+    { value: "WEBULL-CANADA", label: "Webull (Canada)" },
+    { value: "WELLS-FARGO", label: "Wells Fargo" },
+    { value: "ZERODHA", label: "Zerodha" },
+  ];
+
+  // (basic) no extra click handlers — native select used below
+
   const handleAddConnection = async (e) => {
     e.preventDefault(); // stop form reload
 
     try {
-      const broker = brokerToAddRef.current?.value;
+      const broker = selectedBroker;
 
       const response = await authenticatedPost(
         "/api/connections/snaptrade/portal",
@@ -106,31 +148,41 @@ function ConnectBrokerage() {
     <div className="connect-brokerage">
       <h2>Brokerage Accounts</h2>
 
-      <div className="form-section">
-        <form onSubmit={handleAddConnection}>
-          <h3>Add Connection</h3>
-          <label htmlFor="broker">Broker</label>
-          <br />
-          <select id="broker" name="broker" ref={brokerToAddRef}>
-            <option value="ROBINHOOD">Robinhood</option>
-            <option value="ETRADE">Etrade</option>
-            <option value="MORGAN_STANLEY">Morgan Stanley</option>
-            <option value="WEBULL">Webull</option>
-            <option value="COINBASE">Coinbase</option>
-          </select>
-          <br />
-          <br />
-          <button type="submit">Add Connection</button>
-        </form>
+      <div className="form-and-refresh">
+        <div className="form-section">
+          <form onSubmit={handleAddConnection}>
+            <h3>Add Connection</h3>
+            <label htmlFor="broker">Broker</label>
+            <br />
+            <select
+              id="broker"
+              name="broker"
+              value={selectedBroker}
+              onChange={(e) => setSelectedBroker(e.target.value)}
+              size={8}
+            >
+              {BROKERS.map((b) => (
+                <option key={b.value} value={b.value}>
+                  {b.label}
+                </option>
+              ))}
+            </select>
+            <br />
+            <br />
+            <button type="submit">Add Connection</button>
+          </form>
+        </div>
+
+        {/* Right column: refresh button */}
+        <div className="refresh-wrapper">
+          <RefreshButton
+            onSuccess={async () => {
+              await fetchAccounts();
+              await fetchConnections();
+            }}
+          />
+        </div>
       </div>
-      {/* brokerToAddRef can be empty before mount; avoid logging undefined */}
-      <br />
-      <RefreshButton
-        onSuccess={async () => {
-          await fetchAccounts();
-          await fetchConnections();
-        }}
-      />
 
       <div className="connections-list">
         <h4>

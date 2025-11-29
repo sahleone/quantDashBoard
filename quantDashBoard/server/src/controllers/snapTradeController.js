@@ -14,12 +14,15 @@ import Account from "../models/AccountsList.js";
 import AccountBalances from "../models/AccountBalances.js";
 import AccountPositions from "../models/AccountHoldings.js";
 import Metrics from "../models/Metrics.js";
+import Options from "../models/Options.js";
+import OptionsServiceClientService from "../clients/optionsClient.js";
 
 class SnapTradeController {
   constructor() {
     this.userService = new UserServiceClientService();
     this.accountService = new AccountServiceClientService();
     this.connectionService = new ConnectionServiceClientService();
+    this.optionsService = new OptionsServiceClientService();
   }
 
   /**
@@ -706,6 +709,325 @@ class SnapTradeController {
         res.status(500).json(errorResult);
       }
       throw error;
+    }
+  }
+
+  /**
+   * Sync account option holdings from SnapTrade to MongoDB
+   * Expects query or body: { userId, userSecret, accountId }
+   */
+  async syncAccountOptionHoldings(req, res) {
+    try {
+      const { userId, userSecret, accountId } = {
+        ...(req.query || {}),
+        ...(req.body || {}),
+      };
+
+      if (!userId || !userSecret || !accountId) {
+        if (res && res.status && res.json) {
+          return res.status(400).json({ error: "Missing required parameters" });
+        }
+        throw new Error("Missing required parameters");
+      }
+
+      // Call SnapTrade SDK via options service
+      const optionHoldings = await this.optionsService.listOptionHoldings(
+        userId,
+        userSecret,
+        accountId
+      );
+
+      // Persist holdings into Options collection (upsert by accountId + ticker)
+      const synced = [];
+      if (Array.isArray(optionHoldings)) {
+        for (const holding of optionHoldings) {
+          try {
+            const ticker =
+              holding?.option_symbol?.ticker ||
+              holding?.symbol?.option_symbol?.ticker ||
+              (holding?.symbol && holding.symbol.raw_symbol) ||
+              null;
+
+            const query = {
+              accountId: accountId,
+              "symbol.option_symbol.ticker": ticker,
+            };
+
+            const doc = {
+              accountId: accountId,
+              userId: userId,
+              symbol: {
+                option_symbol:
+                  holding.option_symbol || holding.symbol?.option_symbol || {},
+                id: holding.id || null,
+                description: holding.description || null,
+              },
+              price: holding.price ?? holding.last_price ?? null,
+              units: Number(holding.units ?? holding.quantity ?? 0),
+              average_purchase_price:
+                holding.average_purchase_price ??
+                holding.averagePurchasePrice ??
+                null,
+              currency: holding.currency || null,
+              createdAt: new Date(),
+            };
+
+            const updated = await Options.findOneAndUpdate(
+              query,
+              { $set: doc },
+              { upsert: true, new: true, setDefaultsOnInsert: true }
+            );
+            synced.push(updated);
+          } catch (innerErr) {
+            console.error("Error upserting option holding", innerErr);
+          }
+        }
+      }
+
+      const result = {
+        message: "Option holdings synced",
+        holdings: synced,
+        raw: optionHoldings,
+      };
+
+      if (res && res.status && res.json) {
+        return res.status(200).json(result);
+      }
+      return result;
+    } catch (error) {
+      console.error("Error syncing option holdings:", error);
+      if (res && res.status && res.json) {
+        return res
+          .status(500)
+          .json({ error: "Failed to sync option holdings" });
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Get options chain via SnapTrade SDK
+   * Accepts query params and passes them to the SDK's getOptionsChain
+   */
+  async getOptionsChain(req, res) {
+    try {
+      const params = { ...(req.query || {}), ...(req.body || {}) };
+
+      // Sanitize symbol input: remove surrounding quotes and normalize.
+      // SnapTrade expects a UUID for `symbol` (universal symbol id). If the
+      // incoming `symbol` is a plain ticker (e.g. AAPL or "AAPL"), move it
+      // to `ticker` so the SDK will treat it correctly and avoid 400 errors.
+      const isUuid = (val) =>
+        typeof val === "string" &&
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+          val
+        );
+
+      if (typeof params.symbol === "string") {
+        let cleaned = params.symbol.trim();
+        // Strip surrounding single or double quotes if present
+        if (
+          (cleaned.startsWith('"') && cleaned.endsWith('"')) ||
+          (cleaned.startsWith("'") && cleaned.endsWith("'"))
+        ) {
+          cleaned = cleaned.slice(1, -1).trim();
+        }
+
+        // If cleaned value is not a UUID and looks like a ticker, treat as ticker
+        if (!isUuid(cleaned) && /^[A-Za-z0-9._-]{1,20}$/.test(cleaned)) {
+          params.ticker = cleaned;
+          delete params.symbol;
+        } else {
+          // Keep cleaned value as symbol (likely a UUID)
+          params.symbol = cleaned;
+        }
+
+        // Dev-only logging to help debug param issues
+        if (process.env.NODE_ENV === "development") {
+          const dbg = {
+            userId: params.userId,
+            userSecret: params.userSecret ? "<redacted>" : undefined,
+            accountId: params.accountId,
+            symbol: params.symbol,
+            ticker: params.ticker,
+            underlying: params.underlying,
+          };
+          console.log("[debug] getOptionsChain normalized params:", dbg);
+        }
+      }
+
+      // Require SnapTrade credentials and accountId (SDK requires accountId)
+      const { userId, userSecret, accountId } = params;
+      if (!userId || !userSecret || !accountId) {
+        return res.status(400).json({
+          error:
+            "Missing required parameters: userId, userSecret, and accountId are required",
+        });
+      }
+
+      // Minimal validation: require symbol or underlying or ticker
+      if (!params.symbol && !params.underlying && !params.ticker) {
+        return res.status(400).json({
+          error: "Missing required parameter: symbol/underlying/ticker",
+        });
+      }
+
+      const chain = await this.optionsService.getOptionsChain(params);
+
+      return res.status(200).json({ chain });
+    } catch (error) {
+      console.error("Error getting options chain:", error);
+      return res.status(500).json({ error: "Failed to get options chain" });
+    }
+  }
+
+  /**
+   * Dev-only helper: resolve a ticker to a universal symbol id using SnapTrade reference data
+   * Query: ?ticker=PLTY
+   * Only available when NODE_ENV === 'development'
+   */
+  async resolveTicker(req, res) {
+    try {
+      if (process.env.NODE_ENV !== "development") {
+        return res.status(403).json({ error: "Dev endpoint disabled" });
+      }
+
+      const params = { ...(req.query || {}), ...(req.body || {}) };
+      const ticker = params.ticker || params.symbol;
+
+      if (!ticker || typeof ticker !== "string") {
+        return res.status(400).json({ error: "Missing ticker parameter" });
+      }
+
+      // Strip quotes
+      const cleaned = ticker.replace(/^['\"]+|['\"]+$/g, "").trim();
+
+      // The SDK expects an object with `query` containing the ticker string
+      const resp =
+        await this.optionsService.client.referenceData.getSymbolsByTicker({
+          query: cleaned,
+        });
+      // resp may be an axios-style response or the data directly
+      const symbolObj = resp && resp.data ? resp.data : resp;
+
+      return res.status(200).json({ ticker: cleaned, resolved: symbolObj });
+    } catch (error) {
+      console.error("Error resolving ticker to universal symbol:", error);
+      return res.status(500).json({ error: "Failed to resolve ticker" });
+    }
+  }
+
+  /**
+   * Fetch option holdings from SnapTrade (pass-through, no DB persistence)
+   * Accepts query params or body: { userId, userSecret, accountId }
+   */
+  async getAccountOptionHoldings(req, res) {
+    try {
+      const params = { ...(req.query || {}), ...(req.body || {}) };
+      const { userId, userSecret, accountId } = params;
+
+      if (!userId || !userSecret || !accountId) {
+        return res.status(400).json({ error: "Missing required parameters" });
+      }
+
+      // Detect common Postman unexpanded variable placeholder
+      if (typeof accountId === "string" && accountId.includes("{{")) {
+        return res.status(400).json({
+          error:
+            "accountId looks like an unexpanded Postman variable. Please ensure your environment variable is set or send a literal accountId.",
+        });
+      }
+
+      const holdings = await this.optionsService.listOptionHoldings(
+        userId,
+        userSecret,
+        accountId
+      );
+
+      return res.status(200).json({ holdings });
+    } catch (error) {
+      console.error("Error fetching option holdings:", error);
+      return res.status(500).json({ error: "Failed to fetch option holdings" });
+    }
+  }
+
+  /**
+   * Retrieve option holdings from our DB for an account. If there are no
+   * holdings for today, call SnapTrade and persist them, then return the DB
+   * records. This keeps the logic close to the existing sync flow.
+   * Query: ?accountId=... (uses authenticated user from req.user)
+   */
+  async getAccountOptionHoldingsFromDb(req, res) {
+    try {
+      const { accountId } = req.query || {};
+      const user = req.user;
+
+      if (!user || !user.userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      if (!accountId) {
+        return res.status(400).json({ error: "Missing accountId" });
+      }
+
+      const userId = user.userId;
+      const userSecret = user.userSecret;
+
+      // Today's range (local server time)
+      const now = new Date();
+      const startOfDay = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate(),
+        0,
+        0,
+        0,
+        0
+      );
+      const startOfNextDay = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate() + 1,
+        0,
+        0,
+        0,
+        0
+      );
+
+      // Check DB for today's holdings
+      const existing = await Options.find({
+        accountId,
+        createdAt: { $gte: startOfDay, $lt: startOfNextDay },
+      }).lean();
+
+      if (existing && existing.length > 0) {
+        return res.status(200).json({ holdings: existing });
+      }
+
+      // No records for today: trigger a sync (which will persist into DB)
+      // Reuse the controller sync method; call it programmatically with a
+      // fake req object and null res — it returns the result when res is null.
+      try {
+        await this.syncAccountOptionHoldings(
+          { query: { userId, userSecret, accountId } },
+          null
+        );
+      } catch (syncErr) {
+        console.error("Error syncing option holdings from SnapTrade:", syncErr);
+        // Even if sync fails, try to return whatever is in DB (likely empty)
+      }
+
+      // Query DB again and return
+      const refreshed = await Options.find({ accountId })
+        .sort({ createdAt: -1 })
+        .lean();
+
+      return res.status(200).json({ holdings: refreshed });
+    } catch (error) {
+      console.error("Error retrieving option holdings from DB:", error);
+      return res
+        .status(500)
+        .json({ error: "Failed to retrieve option holdings from DB" });
     }
   }
 

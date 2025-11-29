@@ -38,6 +38,21 @@ class AuthController {
     this.userService = new UserServiceClientService();
   }
 
+  // Common cookie options helper to ensure development vs production
+  // settings are applied consistently. Browsers require SameSite=None
+  // cookies to be Secure; to avoid cookies being dropped in local
+  // development, use SameSite='lax' and secure=false when not in
+  // production.
+  cookieOptions(maxAge) {
+    const isProd = process.env.NODE_ENV === "production";
+    return {
+      httpOnly: true,
+      secure: isProd,
+      sameSite: isProd ? "none" : "lax",
+      maxAge,
+    };
+  }
+
   /**
    * Get token expiry time in milliseconds
    */
@@ -227,22 +242,21 @@ class AuthController {
       // send cookies on cross-site XHR/POST requests during development
       // we set `sameSite: 'none'`. `secure` remains enabled for
       // production but disabled locally.
-      res.cookie("refreshToken", refreshToken, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "none",
-        maxAge: this.refreshTokenExpiry,
-      });
+      res.cookie(
+        "refreshToken",
+        refreshToken,
+        this.cookieOptions(this.refreshTokenExpiry)
+      );
 
-      res.cookie("jwt", accessToken, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "none",
-        maxAge:
+      res.cookie(
+        "jwt",
+        accessToken,
+        this.cookieOptions(
           typeof this.accessTokenExpiry === "number"
             ? this.accessTokenExpiry * 1000
-            : ACCESS_TOKEN_DEFAULT_MS,
-      });
+            : ACCESS_TOKEN_DEFAULT_MS
+        )
+      );
 
       res.status(201).json({
         user: {
@@ -321,23 +335,22 @@ class AuthController {
       // Use SameSite=None so the cookie is sent on cross-site XHR (5173 -> 3000)
       // Secure is required when SameSite=None. Modern browsers treat localhost as a secure context.
       // For local development allow non-secure cookies so localhost works.
-      res.cookie("refreshToken", refreshToken, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "none",
-        maxAge: this.refreshTokenExpiry,
-      });
+      res.cookie(
+        "refreshToken",
+        refreshToken,
+        this.cookieOptions(this.refreshTokenExpiry)
+      );
 
       // Also set the access token as an httpOnly cookie named 'jwt'
-      res.cookie("jwt", accessToken, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "none",
-        maxAge:
+      res.cookie(
+        "jwt",
+        accessToken,
+        this.cookieOptions(
           typeof this.accessTokenExpiry === "number"
             ? this.accessTokenExpiry * 1000
-            : ACCESS_TOKEN_DEFAULT_MS,
-      });
+            : ACCESS_TOKEN_DEFAULT_MS
+        )
+      );
 
       // User data will be passed in req.body for subsequent requests
       res.status(200).json({
@@ -422,15 +435,15 @@ class AuthController {
 
       // Also set the access token as an httpOnly cookie so subsequent
       // requests send it automatically and middleware can validate it.
-      res.cookie("jwt", accessToken, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "none",
-        maxAge:
+      res.cookie(
+        "jwt",
+        accessToken,
+        this.cookieOptions(
           typeof this.accessTokenExpiry === "number"
             ? this.accessTokenExpiry * 1000
-            : ACCESS_TOKEN_DEFAULT_MS,
-      });
+            : ACCESS_TOKEN_DEFAULT_MS
+        )
+      );
 
       res.status(200).json({
         accessToken: accessToken,
@@ -468,12 +481,7 @@ class AuthController {
    * Response: { message: "Logged out successfully" }
    */
   logout(req, res) {
-    res.cookie("refreshToken", "", {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "none",
-      maxAge: 0,
-    });
+    res.cookie("refreshToken", "", this.cookieOptions(0));
     res.status(200).json({
       message: "Logged out successfully",
     });

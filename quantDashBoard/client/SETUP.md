@@ -4,13 +4,13 @@
 
 This application requires API keys to function properly. Follow these steps to set up your environment:
 
-### 1. Polygon.io API Key (Required for Stock Info)
+### 1. Alpha Vantage API Key (Required for Stock Info)
 
-1. Go to [Polygon.io](https://polygon.io/) and create a free account
+1. Go to https://www.alphavantage.co/ and create an account
 2. Get your API key from the dashboard
 3. Create a `.env` file in the project root with:
    ```
-   VITE_POLYGON_API_KEY=your_polygon_api_key_here
+   VITE_ALPHA_VANTAGE_API_KEY=your_alpha_vantage_api_key_here
    ```
 
 ### 2. SnapTrade API Keys (Optional for Brokerage Connections)
@@ -41,14 +41,14 @@ npm run dev
 
 ## Troubleshooting
 
-- If you see "Polygon API key is not configured" error, make sure your `.env` file exists and contains the correct API key
+- If you see "Alpha Vantage API key is not configured" error, make sure your `.env` file exists and contains the correct API key
 - The `.env` file should be in the project root (same level as `package.json`)
 - Restart your development server after adding the `.env` file
 - Make sure the `.env` file is not committed to git (it should be in `.gitignore`)
 
 ## Features
 
-- **Stock Info**: Search and view stock information using Polygon.io API
+- **Stock Info**: Search and view stock information using Alpha Vantage
 - **Dashboard**: View charts and portfolio data
 - **Settings**: Manage your profile and preferences
 - **Brokerage Connection**: Connect your trading account (requires SnapTrade API keys)

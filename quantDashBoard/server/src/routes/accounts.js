@@ -62,20 +62,20 @@ router.get("/positions", (req, res) => {
 });
 
 /**
+ * Get Account Activities
+ * GET /api/accounts/activities?accountId=123&startDate=2025-01-01&endDate=2025-02-01&limit=1000&type=BUY,SELL
+ */
+router.get("/activities", (req, res) => {
+  accountsController.getActivities(req, res);
+});
+
+// NOTE: options chain is provided by /api/snaptrade/options/chain via snapTradeController
+
+/**
  * Get Account Return Rates
  * GET /api/accounts/:accountId/returnRates
  */
-router.get("/:accountId/returnRates", (req, res) => {
-  accountsController.getReturnRates(req, res);
-});
-
-/**
- * Get account return rates for authenticated user (selects first account)
- * GET /api/accounts/returnRates
- */
-router.get("/returnRates", (req, res) => {
-  accountsController.getReturnRatesForUser(req, res);
-});
+// Return rates endpoints removed — functionality deprecated and removed.
 
 /**
  * Sync Holdings Data from SnapTrade
@@ -114,15 +114,13 @@ router.post("/sync/holdings/connections", async (req, res) => {
       `Error updating account holdings for user ${userId}:`,
       err?.message || err
     );
-    return res
-      .status(500)
-      .json({
-        error: {
-          code: "HOLDINGS_UPDATE_FAILED",
-          message: "Failed to update holdings",
-          details: err?.message || String(err),
-        },
-      });
+    return res.status(500).json({
+      error: {
+        code: "HOLDINGS_UPDATE_FAILED",
+        message: "Failed to update holdings",
+        details: err?.message || String(err),
+      },
+    });
   }
 });
 

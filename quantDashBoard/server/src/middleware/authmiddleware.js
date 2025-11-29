@@ -16,9 +16,24 @@ const requireAuth = (req, res, next) => {
   if (token) {
     jwt.verify(token, config.jwt.secret, async (err, decodedToken) => {
       if (err) {
+        // Log details for debugging
         console.log("JWT verification failed:", err.message);
-        console.log("Token that failed:", token.substring(0, 20) + "...");
-        res.status(401).json({ message: "Unauthorized" });
+        console.log(
+          "Token that failed:",
+          token ? token.substring(0, 60) + "..." : token
+        );
+
+        // In development return a bit more context to help debugging clients
+        if (process.env.NODE_ENV !== "production") {
+          return res.status(401).json({
+            message: "Unauthorized",
+            error: err.message,
+            tokenPreview: token ? token.substring(0, 60) + "..." : null,
+          });
+        }
+
+        // In production, do not expose verification details
+        return res.status(401).json({ message: "Unauthorized" });
       } else {
         try {
           console.log("JWT decoded successfully, user ID:", decodedToken.id);

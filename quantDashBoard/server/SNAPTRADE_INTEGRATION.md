@@ -212,7 +212,7 @@ GET /snapTrade/api/positions?userId=user-uuid&userSecret=user-secret&accountId=a
 Ensure these are set in your `.env` file:
 
 - `SNAPTRADE_CLIENT_ID`
-- `SNAPTRADE_CONSUMER_SECRET`
+- `SNAPTRADE_CONSUMER_KEY`
 - `DATABASE_URL`
 - `JWT_SECRET`
 

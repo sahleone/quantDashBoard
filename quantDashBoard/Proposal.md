@@ -87,3 +87,8 @@ Enable individual investors to analyze, monitor, and improve their portfolios wi
 ## Stretch Goals
 - Automated rebalancing recommendations  
 - Factor attribution and advanced performance decomposition
+
+
+# Note/Limitations 
+- when construction the balance time series some stocks recorded a negative balance this should not happen and need to be looked at again
+- Splits are handled by multiplying existing share counts by the split factor on the split date. More complex corporate actions (mergers, spin-offs, etc.) aren’t modeled.

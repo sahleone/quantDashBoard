@@ -201,6 +201,10 @@ export const UNIQUE_FIELD_MAPPINGS = {
     accountId: "accountId",
     asOfDate: "asOfDate",
   },
+  Activities: {
+    accountId: "accountId",
+    activityId: "activityId",
+  },
 };
 
 export default {

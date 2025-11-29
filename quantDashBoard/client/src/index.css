@@ -1,13 +1,13 @@
 :root {
-  --bg-dark: #111112; /* offblack */
-  --bg-card: #18191a; /* slightly lighter offblack */
-  --bg-offwhite: #f7f7f5;
-  --text-primary: #f7f7f5; /* offwhite */
-  --text-secondary: #b0b0b0; /* muted offwhite */
-  --accent: #ffffff; /* white for accents */
-  --accent-hover: #e0e0e0; /* light offwhite */
-  --border: #232324; /* dark border */
-  --highlight: #fff; /* white highlight */
+  --bg-dark: #ffffff; /* main page background (white) */
+  --bg-card: #f7fbff; /* very light blue card / panel background */
+  --bg-offwhite: #ffffff; /* off-white areas (white) */
+  --text-primary: #003366; /* darkest blue for primary text */
+  --text-secondary: #00509e; /* medium blue for secondary text */
+  --accent: #007acc; /* primary accent (buttons, links) */
+  --accent-hover: #66a3ff; /* hover / lighter accent */
+  --border: #cce0ff; /* subtle border color */
+  --highlight: #00509e; /* highlight / emphasis */
 }
 
 body {
@@ -67,7 +67,7 @@ header nav a:hover {
 }
 
 table {
-  width: 100%;
+  width: 95%;
   background: var(--bg-card);
   border-radius: 8px;
   overflow: hidden;

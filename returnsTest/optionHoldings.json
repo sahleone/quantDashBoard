@@ -1,0 +1,289 @@
+{
+    "holdings": [
+        {
+            "symbol": {
+                "id": "2a77429b-99f5-4e34-916d-77cd4ac7f23a",
+                "description": "",
+                "option_symbol": {
+                    "id": "400463c7-5ef9-4d6e-b61f-9de99b86aa08",
+                    "ticker": "PLTY  260320P00066000",
+                    "strike_price": 66,
+                    "expiration_date": "2026-03-20",
+                    "is_mini_option": false,
+                    "underlying_symbol": {
+                        "id": "2f088aea-2be6-410d-a36a-39c98ab61408",
+                        "symbol": "PLTY",
+                        "description": "YieldMax PLTR Option Income Strategy ETF",
+                        "currency": {
+                            "code": "USD",
+                            "name": "US Dollar",
+                            "id": "57f81c53-bdda-45a7-a51f-032afd1ae41b"
+                        },
+                        "exchange": {
+                            "id": "9f3ea556-15c5-4321-8983-ad4033ff802b",
+                            "code": "ARCA",
+                            "mic_code": "ARCX",
+                            "name": "NYSE Arca",
+                            "suffix": null,
+                            "timezone": "America/New_York",
+                            "start_time": "09:30:00",
+                            "close_time": "16:00:00"
+                        },
+                        "currencies": [],
+                        "type": {
+                            "id": "8057ceb7-e073-4c77-8635-a1c9bc6442cb",
+                            "code": "et",
+                            "description": "ETF",
+                            "is_supported": true
+                        },
+                        "raw_symbol": "PLTY",
+                        "logo_url": "",
+                        "figi_code": "BBG01Q6DWBN1",
+                        "figi_instrument": {
+                            "figi_code": "BBG01Q6DWBN1",
+                            "figi_share_class": null
+                        }
+                    },
+                    "option_type": "PUT"
+                },
+                "local_id": "",
+                "security_type": {},
+                "listing_exchange": {},
+                "is_quotable": true,
+                "is_tradable": true
+            },
+            "price": 18.5,
+            "units": 1,
+            "currency": null,
+            "average_purchase_price": 1850
+        },
+        {
+            "symbol": {
+                "id": "d5f6a99e-be0a-4005-9a7a-0aa58196f603",
+                "description": "",
+                "option_symbol": {
+                    "id": "0809132d-6237-430c-94c4-f51e1be5bd41",
+                    "ticker": "ULTY  260417P00006000",
+                    "strike_price": 6,
+                    "expiration_date": "2026-04-17",
+                    "is_mini_option": false,
+                    "underlying_symbol": {
+                        "id": "8ea80851-9268-4b18-baf0-9a8ca196a847",
+                        "symbol": "ULTY",
+                        "description": "Tidal Trust II - YieldMax Ultra Option Income Strategy ETF",
+                        "currency": {
+                            "code": "USD",
+                            "name": "US Dollar",
+                            "id": "57f81c53-bdda-45a7-a51f-032afd1ae41b"
+                        },
+                        "exchange": {
+                            "id": "9f3ea556-15c5-4321-8983-ad4033ff802b",
+                            "code": "ARCA",
+                            "mic_code": "ARCX",
+                            "name": "NYSE Arca",
+                            "suffix": null,
+                            "timezone": "America/New_York",
+                            "start_time": "09:30:00",
+                            "close_time": "16:00:00"
+                        },
+                        "currencies": [],
+                        "type": {
+                            "id": "8057ceb7-e073-4c77-8635-a1c9bc6442cb",
+                            "code": "et",
+                            "description": "ETF",
+                            "is_supported": true
+                        },
+                        "raw_symbol": "ULTY",
+                        "logo_url": "",
+                        "figi_code": "BBG01LQYD9G8",
+                        "figi_instrument": {
+                            "figi_code": "BBG01LQYD9G8",
+                            "figi_share_class": "BBG01LQYDB46"
+                        }
+                    },
+                    "option_type": "PUT"
+                },
+                "local_id": "",
+                "security_type": {},
+                "listing_exchange": {},
+                "is_quotable": true,
+                "is_tradable": true
+            },
+            "price": 3.08,
+            "units": 1,
+            "currency": null,
+            "average_purchase_price": 200
+        },
+        {
+            "symbol": {
+                "id": "05df91fc-c85e-4ce8-a856-8ee3e3eeafc2",
+                "description": "",
+                "option_symbol": {
+                    "id": "80f1ee10-a079-4ccf-8464-c5aa29162d30",
+                    "ticker": "MSTY  260116P00020000",
+                    "strike_price": 20,
+                    "expiration_date": "2026-01-16",
+                    "is_mini_option": false,
+                    "underlying_symbol": {
+                        "id": "2494cf46-b7c3-4ded-9db0-13db2f18f4f5",
+                        "symbol": "MSTY",
+                        "description": "Tidal Trust II - YieldMax MSTR Option Income Strategy ETF",
+                        "currency": {
+                            "code": "USD",
+                            "name": "US Dollar",
+                            "id": "57f81c53-bdda-45a7-a51f-032afd1ae41b"
+                        },
+                        "exchange": {
+                            "id": "9f3ea556-15c5-4321-8983-ad4033ff802b",
+                            "code": "ARCA",
+                            "mic_code": "ARCX",
+                            "name": "NYSE Arca",
+                            "suffix": null,
+                            "timezone": "America/New_York",
+                            "start_time": "09:30:00",
+                            "close_time": "16:00:00"
+                        },
+                        "currencies": [],
+                        "type": {
+                            "id": "8057ceb7-e073-4c77-8635-a1c9bc6442cb",
+                            "code": "et",
+                            "description": "ETF",
+                            "is_supported": true
+                        },
+                        "raw_symbol": "MSTY",
+                        "logo_url": "",
+                        "figi_code": "BBG01LMW2Q52",
+                        "figi_instrument": {
+                            "figi_code": "BBG01LMW2Q52",
+                            "figi_share_class": "BBG01LMW2QW2"
+                        }
+                    },
+                    "option_type": "PUT"
+                },
+                "local_id": "",
+                "security_type": {},
+                "listing_exchange": {},
+                "is_quotable": true,
+                "is_tradable": true
+            },
+            "price": 12.6,
+            "units": 1,
+            "currency": null,
+            "average_purchase_price": 720
+        },
+        {
+            "symbol": {
+                "id": "012b9b89-e117-4a10-ab86-24387d51ba6d",
+                "description": "",
+                "option_symbol": {
+                    "id": "ac157f6e-f77d-4ee6-ae96-46d6c4445431",
+                    "ticker": "YMAG  260116P00015000",
+                    "strike_price": 15,
+                    "expiration_date": "2026-01-16",
+                    "is_mini_option": false,
+                    "underlying_symbol": {
+                        "id": "23ff9fe4-8eb9-497f-b325-69202d08d4b4",
+                        "symbol": "YMAG",
+                        "description": "YIELDMAX MAGNIFICENT 7 FUND OF OPTION INCOME ETFS",
+                        "currency": {
+                            "code": "USD",
+                            "name": "US Dollar",
+                            "id": "57f81c53-bdda-45a7-a51f-032afd1ae41b"
+                        },
+                        "exchange": {
+                            "id": "2b702dcb-b566-4fe9-a832-f4f4ddd6dca3",
+                            "code": "NYSEAM",
+                            "mic_code": "XASE",
+                            "name": "NYSE American",
+                            "suffix": null,
+                            "timezone": "America/New_York",
+                            "start_time": "09:30:00",
+                            "close_time": "16:00:00"
+                        },
+                        "currencies": [],
+                        "type": {
+                            "id": "515c27d1-8471-4dec-a234-af12184c51d4",
+                            "code": "cs",
+                            "description": "Common Stock",
+                            "is_supported": true
+                        },
+                        "raw_symbol": "YMAG",
+                        "logo_url": null,
+                        "figi_code": "BBG01L7YNZC4",
+                        "figi_instrument": {
+                            "figi_code": "BBG01L7YNZC4",
+                            "figi_share_class": "BBG01L7YP057"
+                        }
+                    },
+                    "option_type": "PUT"
+                },
+                "local_id": "",
+                "security_type": {},
+                "listing_exchange": {},
+                "is_quotable": true,
+                "is_tradable": true
+            },
+            "price": 1.24,
+            "units": 1,
+            "currency": null,
+            "average_purchase_price": 265
+        },
+        {
+            "symbol": {
+                "id": "6bbd2ced-d7d2-4c71-a9e6-8106471e0f0d",
+                "description": "",
+                "option_symbol": {
+                    "id": "1829af9a-120d-49b5-8419-f3d759e2c580",
+                    "ticker": "CONY  260116P00008000",
+                    "strike_price": 8,
+                    "expiration_date": "2026-01-16",
+                    "is_mini_option": false,
+                    "underlying_symbol": {
+                        "id": "66336c72-d218-456b-9660-bf8202026e75",
+                        "symbol": "CONY",
+                        "description": "Tidal Trust II - YieldMax COIN Option Income Strategy ETF",
+                        "currency": {
+                            "code": "USD",
+                            "name": "US Dollar",
+                            "id": "57f81c53-bdda-45a7-a51f-032afd1ae41b"
+                        },
+                        "exchange": {
+                            "id": "9f3ea556-15c5-4321-8983-ad4033ff802b",
+                            "code": "ARCA",
+                            "mic_code": "ARCX",
+                            "name": "NYSE Arca",
+                            "suffix": null,
+                            "timezone": "America/New_York",
+                            "start_time": "09:30:00",
+                            "close_time": "16:00:00"
+                        },
+                        "currencies": [],
+                        "type": {
+                            "id": "8057ceb7-e073-4c77-8635-a1c9bc6442cb",
+                            "code": "et",
+                            "description": "ETF",
+                            "is_supported": true
+                        },
+                        "raw_symbol": "CONY",
+                        "logo_url": "",
+                        "figi_code": "BBG01HQM0N67",
+                        "figi_instrument": {
+                            "figi_code": "BBG01HQM0N67",
+                            "figi_share_class": "BBG01HQM0NW8"
+                        }
+                    },
+                    "option_type": "PUT"
+                },
+                "local_id": "",
+                "security_type": {},
+                "listing_exchange": {},
+                "is_quotable": true,
+                "is_tradable": true
+            },
+            "price": 3.35,
+            "units": 1,
+            "currency": null,
+            "average_purchase_price": 265
+        }
+    ]
+}

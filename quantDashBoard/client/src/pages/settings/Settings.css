@@ -1,6 +1,6 @@
 .settings {
   display: flex;
-  height: 100vh;
+  min-height: calc(100vh - 72px);
   min-height: 500px;
   background: var(--bg-dark);
 }
@@ -11,8 +11,9 @@
   align-items: center;
   background: var(--bg-card);
   border-right: 1px solid var(--border);
-  padding: 40px 0;
-  width: 20%;
+  padding: 40px 16px;
+  box-sizing: border-box;
+  flex: 0 0 220px;
 }
 
 .settings-container h1 {
@@ -55,10 +56,13 @@
 }
 
 .settings-content {
-  padding: 60px;
+  padding: 40px;
   display: flex;
   flex-direction: column;
   background: var(--bg-card);
   color: var(--text-primary);
-  width: 80%;
+  box-sizing: border-box;
+  flex: 1 1 auto;
+  max-height: calc(100vh - 72px);
+  overflow: auto;
 }

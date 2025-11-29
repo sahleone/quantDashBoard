@@ -18,6 +18,7 @@ import AccountHoldings from "../models/AccountHoldings.js";
 import AccountBalances from "../models/AccountBalances.js";
 import AccountPositions from "../models/AccountPositions.js";
 import AccountOrders from "../models/AccountOrders.js";
+import Activities from "../models/AccountActivities.js";
 import {
   upsertWithDuplicateCheck,
   UNIQUE_FIELD_MAPPINGS,
@@ -445,147 +446,21 @@ class AccountsController {
     }
   }
 
+  // Options chain handling removed from accountsController. Use /api/snaptrade/options/chain
+
   /**
    * Get account rate of return percentages
    *
    * GET /api/accounts/:accountId/returnRates
    */
-  async getReturnRates(req, res) {
-    try {
-      const user = req.user;
-      if (!user) {
-        return res.status(401).json({
-          error: { code: "UNAUTHORIZED", message: "Not authenticated" },
-        });
-      }
-
-      const { accountId } = req.params;
-
-      if (!accountId) {
-        return res.status(400).json({
-          error: { code: "VALIDATION_ERROR", message: "Missing accountId" },
-        });
-      }
-
-      console.log(
-        `Getting return rates for user: ${user.userId}, account: ${accountId}`
-      );
-
-      const returnRates = await this.accountService.getUserAccountReturnRates(
-        user.userId,
-        user.userSecret,
-        accountId
-      );
-      res.status(200).json({
-        accountId,
-        rates: returnRates,
-        source: "snaptrade_api",
-      });
-    } catch (error) {
-      console.error("Error getting return rates:", error);
-      // Include SDK response details when available for easier debugging
-      const details = {
-        message: error.message,
-        sdkStatus: error.response?.status,
-        sdkData: error.response?.data,
-      };
-      res.status(500).json({
-        error: {
-          code: "RETURN_RATES_FAILED",
-          message: "Failed to retrieve return rates",
-          details,
-        },
-      });
-    }
-  }
+  // getReturnRates removed — endpoint deprecated.
 
   /**
    * Get account return rates for the authenticated user
    * Picks a default account (first) for the user if no accountId provided
    * GET /api/accounts/returnRates
    */
-  async getReturnRatesForUser(req, res) {
-    try {
-      const user = req.user;
-      if (!user) {
-        return res.status(401).json({
-          error: { code: "UNAUTHORIZED", message: "Not authenticated" },
-        });
-      }
-
-      if (!user.userSecret) {
-        return res.status(400).json({
-          error: {
-            code: "MISSING_SNAPTRADE_CREDENTIALS",
-            message: "User does not have SnapTrade credentials",
-          },
-        });
-      }
-
-      // Get accounts for user via accountService
-      const accounts = await this.accountService.listAccounts(
-        user.userId,
-        user.userSecret
-      );
-
-      if (!Array.isArray(accounts) || accounts.length === 0) {
-        return res.status(404).json({
-          error: {
-            code: "NO_ACCOUNTS",
-            message:
-              "No SnapTrade accounts found for user. Connect a brokerage or sync connections.",
-          },
-        });
-      }
-
-      const accountId =
-        accounts[0].id ||
-        accounts[0].accountId ||
-        accounts[0].account_id ||
-        accounts[0].id;
-
-      if (!accountId) {
-        return res.status(500).json({
-          error: {
-            code: "ACCOUNT_ID_NOT_FOUND",
-            message: "Could not determine account id",
-          },
-        });
-      }
-
-      const returnRates = await this.accountService.getUserAccountReturnRates(
-        user.userId,
-        user.userSecret,
-        accountId
-      );
-
-      res.status(200).json({
-        accountId,
-        rates: returnRates,
-        source: "snaptrade_api",
-      });
-    } catch (error) {
-      console.error("Error getting return rates for user:", error);
-      // Include SDK details for debugging and, when available, forward the SDK status
-      const sdkStatus = error.response?.status;
-      const details = {
-        message: error.message,
-        sdkStatus: sdkStatus,
-        sdkData: error.response?.data,
-      };
-
-      const statusToReturn =
-        sdkStatus && Number.isInteger(sdkStatus) ? sdkStatus : 500;
-
-      res.status(statusToReturn).json({
-        error: {
-          code: "RETURN_RATES_USER_FAILED",
-          message: "Failed to retrieve return rates for user",
-          details,
-        },
-      });
-    }
-  }
+  // getReturnRatesForUser removed — endpoint deprecated.
 
   /**
    * Get account positions
@@ -605,7 +480,9 @@ class AccountsController {
    */
   async getPositions(req, res) {
     try {
-      const { userId } = req.body;
+      // Prefer explicit userId from the body (backwards compatibility),
+      // but fall back to the authenticated user attached by requireAuth.
+      const userId = req.body?.userId || req.user?.userId || null;
       const { accountId, asOf } = req.query;
 
       console.log(
@@ -657,6 +534,200 @@ class AccountsController {
           code: "POSITIONS_RETRIEVAL_FAILED",
           message: "Failed to retrieve positions",
           retryAfter: 60,
+        },
+      });
+    }
+  }
+
+  /**
+   * Get account activities (transactions, dividends, fees, transfers, etc.)
+   *
+   * GET /api/accounts/activities?accountId=123&startDate=YYYY-MM-DD&endDate=YYYY-MM-DD&limit=1000&type=BUY,SELL
+   */
+  async getActivities(req, res) {
+    try {
+      const user = req.user;
+      if (!user) {
+        return res.status(401).json({
+          error: { code: "UNAUTHORIZED", message: "Not authenticated" },
+        });
+      }
+
+      if (!user.userSecret) {
+        return res.status(400).json({
+          error: {
+            code: "MISSING_SNAPTRADE_CREDENTIALS",
+            message: "User does not have SnapTrade credentials",
+          },
+        });
+      }
+
+      // Use explicit defaults and avoid creating implicit globals. Parse limit safely.
+      const DEFAULT_ACTIVITY_TYPES =
+        "BUY,SELL,DIVIDEND,CONTRIBUTION,WITHDRAWAL,TRANSFER,REI,STOCK_DIVIDEND,INTEREST,FEE,TAX,OPTIONEXPIRATION,OPTIONASSIGNMENT,OPTIONEXERCISE,TRANSFER,SPLIT";
+      const DEFAULT_LIMIT = 1000;
+
+      const {
+        accountId,
+        startDate = null,
+        endDate = null,
+        limit = DEFAULT_LIMIT,
+        type = DEFAULT_ACTIVITY_TYPES,
+      } = req.query;
+
+      const parsedLimit = parseInt(limit, 10) || DEFAULT_LIMIT;
+      // SnapTrade upstream typically enforces a maximum per-page limit (1000).
+      // If callers request a larger per-page limit, the upstream API may
+      // return 400. Enforce a safe cap and log the change so callers get
+      // predictable behavior.
+      const SNAPTRADE_MAX_LIMIT = 1000;
+      const effectiveLimit = Math.min(parsedLimit, SNAPTRADE_MAX_LIMIT);
+      if (parsedLimit > SNAPTRADE_MAX_LIMIT) {
+        console.warn(
+          `Requested limit ${parsedLimit} exceeds SNAPTRADE_MAX_LIMIT (${SNAPTRADE_MAX_LIMIT}). Capping to ${SNAPTRADE_MAX_LIMIT}.`
+        );
+      }
+      // Support offset-based pagination. If the client supplies `offset` or
+      // sets `paginate=true`, return a single page with upstream pagination
+      // metadata. If the client sets `all=true`, fetch all pages internally
+      // (may be large). Default behavior remains: fetch all pages.
+      const offset =
+        req.query.offset !== undefined
+          ? parseInt(req.query.offset, 10)
+          : undefined;
+      const paginateFlag =
+        req.query.paginate === "true" ||
+        req.query.paginate === "1" ||
+        offset !== undefined;
+      const activityTypes = type;
+
+      if (!accountId) {
+        return res.status(400).json({
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "Missing required parameter: accountId is required",
+          },
+        });
+      }
+
+      console.log(
+        `Getting activities for user: ${user.userId}, account: ${accountId}, startDate: ${startDate}, endDate: ${endDate}, type: ${type}`
+      );
+
+      // Sanity-check the account exists on SnapTrade and has transactions synced
+      try {
+        const accountDetail = await this.accountService.getAccountDetails(
+          user.userId,
+          user.userSecret,
+          accountId
+        );
+
+        // If we can inspect sync status, surface a helpful error if transactions
+        // have not been synced for this account yet.
+        const txSyncStatus =
+          accountDetail?.sync_status?.transactions?.initial_sync_completed;
+        if (txSyncStatus === false) {
+          return res.status(409).json({
+            error: {
+              code: "ACTIVITIES_NOT_SYNCED",
+              message:
+                "Account transactions have not been synced on SnapTrade yet. Try refreshing the connection or sync status.",
+              details: { accountId, sync_status: accountDetail?.sync_status },
+            },
+          });
+        }
+      } catch (acctErr) {
+        // If the account is not found on SnapTrade, return a clearer error
+        const acctStatus = acctErr?.response?.status;
+        if (acctStatus === 404) {
+          return res.status(404).json({
+            error: {
+              code: "ACCOUNT_NOT_FOUND_ON_SNAPTRADE",
+              message:
+                "The provided accountId was not found on SnapTrade or is not accessible for this user.",
+              details: {
+                sdkStatus: acctStatus,
+                sdkData: acctErr?.response?.data,
+                sdkRequest: {
+                  url: acctErr?.response?.config?.url,
+                  method: acctErr?.response?.config?.method,
+                  params: acctErr?.response?.config?.params || null,
+                },
+              },
+            },
+          });
+        }
+
+        // Otherwise rethrow and let the outer catch handle it
+        throw acctErr;
+      }
+
+      // If client asked for a specific page, return the upstream page data
+      if (paginateFlag) {
+        const page = await this.accountService.listAccountActivitiesPage(
+          user.userId,
+          user.userSecret,
+          accountId,
+          offset || 0,
+          effectiveLimit,
+          startDate || null,
+          endDate || null,
+          activityTypes
+        );
+
+        const activities = Array.isArray(page.data) ? page.data : [];
+        return res.status(200).json({
+          accountId,
+          activities,
+          pagination: page.pagination || null,
+          count: activities.length,
+          source: "snaptrade_api",
+        });
+      }
+
+      // If client explicitly requests all pages, or for backward compatibility,
+      // fall back to fetching all pages internally.
+      const activities = await this.accountService.listAllAccountActivities(
+        user.userId,
+        user.userSecret,
+        accountId,
+        effectiveLimit,
+        startDate || null,
+        endDate || null,
+        activityTypes
+      );
+
+      res.status(200).json({
+        accountId,
+        activities,
+        count: Array.isArray(activities) ? activities.length : 0,
+        source: "snaptrade_api",
+      });
+    } catch (error) {
+      console.error("Error getting account activities:", error);
+      const sdkStatus = error.response?.status;
+      const details = {
+        message: error.message,
+        sdkStatus,
+        sdkData: error.response?.data,
+        // Include the upstream request details if available to aid debugging
+        sdkRequest: {
+          url: error.response?.config?.url,
+          method: error.response?.config?.method,
+          params:
+            error.response?.config?.params ||
+            error.response?.config?.data ||
+            null,
+          headers: error.response?.config?.headers || null,
+        },
+      };
+      const statusToReturn =
+        sdkStatus && Number.isInteger(sdkStatus) ? sdkStatus : 500;
+      return res.status(statusToReturn).json({
+        error: {
+          code: "ACTIVITIES_RETRIEVAL_FAILED",
+          message: "Failed to retrieve account activities",
+          details,
         },
       });
     }
@@ -843,6 +914,23 @@ class AccountsController {
             );
           }
 
+          let activitiesResult = null;
+          if (
+            Array.isArray(syncData.activities) &&
+            syncData.activities.length > 0
+          ) {
+            activitiesResult = await upsertWithDuplicateCheck(
+              Activities,
+              syncData.activities,
+              UNIQUE_FIELD_MAPPINGS.Activities,
+              "activities"
+            );
+            console.log(
+              `Activities sync result for account ${account.accountId}:`,
+              activitiesResult
+            );
+          }
+
           syncResults.push({
             accountId: account.accountId,
             status: "success",
@@ -867,6 +955,17 @@ class AccountsController {
             orders: {
               total: syncData.orders.length,
               result: ordersResult || {
+                total: 0,
+                upserted: 0,
+                duplicates: 0,
+                errors: 0,
+              },
+            },
+            activities: {
+              total: Array.isArray(syncData.activities)
+                ? syncData.activities.length
+                : 0,
+              result: activitiesResult || {
                 total: 0,
                 upserted: 0,
                 duplicates: 0,

@@ -27,11 +27,13 @@ app.use(express.json());
 app.use(cookieParser());
 
 // Connect to MongoDB
+// NOTE: mongoose v6+ and the Node MongoDB driver v4+ ignore
+// `useNewUrlParser` and `useUnifiedTopology` options — passing
+// them triggers deprecation warnings. Call connect with the
+// connection string only (or with current valid options) to
+// avoid the warning.
 mongoose
-  .connect(config.DATABASE_URL, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-  })
+  .connect(config.DATABASE_URL)
   .then(() => {
     console.log("Successfully connected to MongoDB.");
     app.listen(BackendPort, () => {
