@@ -48,7 +48,11 @@ export async function updateAccountActivitiesTable(opts = {}) {
   const databaseUrl =
     opts.databaseUrl ||
     process.env.DATABASE_URL ||
-    "mongodb+srv://rhysjervis2:RgRYOx97CgzHdemQ@cluster0.3vrnf.mongodb.net/node_auth";
+    (() => {
+      throw new Error(
+        "DATABASE_URL environment variable is required. Please set it in your .env file."
+      );
+    })();
   const activityTypes =
     opts.activityTypes ||
     "BUY,SELL,DIVIDEND,CONTRIBUTION,WITHDRAWAL,REI,STOCK_DIVIDEND,INTEREST,FEE,OPTIONEXPIRATION,OPTIONASSIGNMENT,OPTIONEXERCISE,TRANSFER";

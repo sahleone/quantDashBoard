@@ -14,6 +14,7 @@
 import AccountHoldings from "../models/AccountHoldings.js";
 import AccountBalances from "../models/AccountBalances.js";
 import Metrics from "../models/Metrics.js";
+import { config } from "../config/environment.js";
 
 /**
  * Metrics Controller
@@ -770,6 +771,95 @@ class MetricsController {
     });
 
     return drawdowns;
+  }
+
+  /**
+   * Calculate Metrics (Manual Trigger)
+   * POST /api/metrics/calculate
+   *
+   * Triggers the metrics calculation pipeline.
+   * Supports both fullSync (for new connections) and incremental (for daily refresh).
+   *
+   * @async
+   * @method calculateMetrics
+   * @param {Object} req - Express request object
+   * @param {Object} res - Express response object
+   * @returns {Promise<void>}
+   *
+   * @example
+   * POST /api/metrics/calculate
+   * Body: { userId: "user123", fullSync: false, steps: ["price", "valuation", "metrics"] }
+   * Response: { success: true, results: {...}, summary: {...} }
+   */
+  async calculateMetrics(req, res) {
+    try {
+      const { userId, accountId, fullSync = false, steps } = req.body;
+
+      // Validate required parameters
+      if (!userId) {
+        return res.status(400).json({
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "Missing required parameter: userId is required",
+          },
+        });
+      }
+
+      console.log(
+        `Calculating metrics for user: ${userId}, accountId: ${
+          accountId || "all"
+        }, fullSync: ${fullSync}`
+      );
+
+      // Dynamically import the pipeline function
+      // Path is relative to server/src/controllers/
+      const { runMetricsPipeline } = await import(
+        "../../../../metrics/runMetricsPipeline.js"
+      );
+
+      // Run the pipeline
+      const results = await runMetricsPipeline({
+        databaseUrl: config.DATABASE_URL,
+        userId,
+        accountId,
+        fullSync,
+        steps,
+      });
+
+      // Check for errors
+      if (results.errors && results.errors.length > 0) {
+        return res.status(200).json({
+          success: true,
+          results,
+          summary: {
+            completed: true,
+            errors: results.errors.length,
+            warnings: 0,
+          },
+          message: "Metrics calculation completed with some errors",
+        });
+      }
+
+      res.status(200).json({
+        success: true,
+        results,
+        summary: {
+          completed: true,
+          errors: 0,
+          warnings: 0,
+        },
+        message: "Metrics calculation completed successfully",
+      });
+    } catch (error) {
+      console.error("Error calculating metrics:", error);
+      res.status(500).json({
+        error: {
+          code: "METRICS_CALCULATION_FAILED",
+          message: "Failed to calculate metrics",
+          details: error.message,
+        },
+      });
+    }
   }
 }
 

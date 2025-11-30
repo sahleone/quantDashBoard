@@ -76,4 +76,14 @@ router.get("/metrics/timeseries", (req, res) => {
   metricsController.getTimeSeries(req, res);
 });
 
+/**
+ * Calculate Metrics (Manual Trigger)
+ * POST /api/metrics/calculate
+ * Body: { userId, accountId (optional), fullSync (optional, default: false), steps (optional) }
+ * Response: { success, results, summary }
+ */
+router.post("/metrics/calculate", async (req, res) => {
+  await metricsController.calculateMetrics(req, res);
+});
+
 export default router;

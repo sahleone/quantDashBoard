@@ -183,7 +183,11 @@ export async function updateEquitiesWeightTable(opts = {}) {
   const databaseUrl =
     opts.databaseUrl ||
     process.env.DATABASE_URL ||
-    "mongodb+srv://rhysjervis2:RgRYOx97CgzHdemQ@cluster0.3vrnf.mongodb.net/node_auth";
+    (() => {
+      throw new Error(
+        "DATABASE_URL environment variable is required. Please set it in your .env file."
+      );
+    })();
 
   const userId = opts.userId || null;
   const accountId = opts.accountId || null;

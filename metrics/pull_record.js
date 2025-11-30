@@ -29,50 +29,61 @@ function parseArgs() {
 }
 
 (async function main() {
-  const argv = parseArgs();
-  const modelName = argv.model || "AccountsList";
-
-  const databaseUrl =
-    process.env.DATABASE_URL ||
-    "mongodb+srv://rhysjervis2:RgRYOx97CgzHdemQ@cluster0.3vrnf.mongodb.net/node_auth";
-
-  console.log(
-    `Using DB: ${
-      databaseUrl.includes("@") ? databaseUrl.split("@")[1] : databaseUrl
-    }`
-  );
   try {
-    mongoose.set("bufferCommands", false);
-    await mongoose.connect(databaseUrl, { serverSelectionTimeoutMS: 30000 });
-    console.log("mongoose readyState:", mongoose.connection.readyState);
-  } catch (err) {
-    console.error("Failed to connect to MongoDB:", err?.message || err);
-    process.exit(2);
-  }
+    const argv = parseArgs();
+    const modelName = argv.model || "AccountsList";
 
-  try {
-    let doc = null;
-    if (modelName === "AccountsList") {
-      doc = await AccountsList.findOne({}).lean();
-    } else if (modelName === "Users") {
-      doc = await Users.findOne({}).lean();
-    } else {
-      console.error(
-        `Unknown model: ${modelName}. Supported: AccountsList, Users`
-      );
-      await mongoose.disconnect();
-      process.exit(3);
-    }
+    const databaseUrl =
+      process.env.DATABASE_URL ||
+      (() => {
+        throw new Error(
+          "DATABASE_URL environment variable is required. Please set it in your .env file."
+        );
+      })();
 
-    if (!doc) console.log(`No documents found in ${modelName}`);
-    else console.log(`${modelName} sample:`, JSON.stringify(doc, null, 2));
-  } catch (err) {
-    console.error("Error querying model:", err?.message || err);
-  } finally {
+    console.log(
+      `Using DB: ${
+        databaseUrl.includes("@") ? databaseUrl.split("@")[1] : databaseUrl
+      }`
+    );
     try {
-      await mongoose.disconnect();
-    } catch (e) {
-      // ignore
+      mongoose.set("bufferCommands", false);
+      await mongoose.connect(databaseUrl, { serverSelectionTimeoutMS: 30000 });
+      console.log("mongoose readyState:", mongoose.connection.readyState);
+    } catch (err) {
+      console.error("Failed to connect to MongoDB:", err?.message || err);
+      process.exit(2);
     }
+
+    try {
+      let doc = null;
+      if (modelName === "AccountsList") {
+        doc = await AccountsList.findOne({}).lean();
+      } else if (modelName === "Users") {
+        doc = await Users.findOne({}).lean();
+      } else {
+        console.error(
+          `Unknown model: ${modelName}. Supported: AccountsList, Users`
+        );
+        await mongoose.disconnect();
+        process.exit(3);
+      }
+
+      if (!doc) console.log(`No documents found in ${modelName}`);
+      else console.log(`${modelName} sample:`, JSON.stringify(doc, null, 2));
+    } catch (err) {
+      console.error("Error querying model:", err?.message || err);
+      process.exit(4);
+    } finally {
+      try {
+        await mongoose.disconnect();
+      } catch (e) {
+        // ignore
+      }
+    }
+  } catch (err) {
+    // Catch any errors from variable initialization (e.g., missing DATABASE_URL)
+    console.error("Fatal error:", err?.message || err);
+    process.exit(1);
   }
 })();
