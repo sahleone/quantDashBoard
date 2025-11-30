@@ -1,6 +1,6 @@
 import { NavLink, Outlet } from "react-router-dom";
 import { useContext } from "react";
-import UserContext from "../context/Usercontext";
+import UserContext from "../context/UserContext";
 
 function RootLayout() {
   const context = useContext(UserContext) || {};

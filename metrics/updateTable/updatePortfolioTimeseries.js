@@ -24,7 +24,6 @@ async function calculateStockValue(accountId, date, db) {
   const timeseriesCollection = db.collection("equitiesweighttimeseries");
   const priceHistoryCollection = db.collection("pricehistories");
 
-  // Get all positions for this account and date
   const positions = await timeseriesCollection
     .find({
       accountId: accountId,
@@ -39,11 +38,9 @@ async function calculateStockValue(accountId, date, db) {
   let totalStockValue = 0;
   const positionDetails = [];
 
-  // Get prices for all symbols
   const symbols = positions.map((p) => p.symbol);
   const priceMap = new Map();
 
-  // Fetch prices for all symbols at once
   const prices = await priceHistoryCollection
     .find({
       symbol: { $in: symbols },
@@ -52,7 +49,6 @@ async function calculateStockValue(accountId, date, db) {
     .sort({ symbol: 1, date: -1 })
     .toArray();
 
-  // Group by symbol and get latest price before or on date
   const pricesBySymbol = new Map();
   for (const price of prices) {
     if (!pricesBySymbol.has(price.symbol)) {
@@ -60,12 +56,10 @@ async function calculateStockValue(accountId, date, db) {
     }
   }
 
-  // Calculate value for each position
   for (const position of positions) {
     const symbol = position.symbol;
     const units = position.units || 0;
 
-    // Get price (forward fill from last known price)
     let price = 0;
     if (pricesBySymbol.has(symbol)) {
       price = pricesBySymbol.get(symbol).close || 0;
@@ -92,7 +86,6 @@ async function calculateStockValue(accountId, date, db) {
 async function buildCashAndFlows(accountId, db) {
   const activitiesCollection = db.collection("snaptradeaccountactivities");
 
-  // Fetch all activities for this account
   const activities = await activitiesCollection
     .find({ accountId: accountId })
     .sort({ trade_date: 1, date: 1 })
@@ -107,9 +100,8 @@ async function buildCashAndFlows(accountId, db) {
     };
   }
 
-  // Group by date and sum amounts
-  const cashFlowByDate = new Map(); // date -> net cash flow
-  const extFlowByDate = new Map(); // date -> external flow
+  const cashFlowByDate = new Map();
+  const extFlowByDate = new Map();
 
   const EXT_TYPES = new Set(["CONTRIBUTION", "DEPOSIT", "WITHDRAWAL"]);
 
@@ -118,7 +110,6 @@ async function buildCashAndFlows(accountId, db) {
     const amount = parseFloat(activity.amount || 0);
     if (isNaN(amount)) continue;
 
-    // Get date (prefer trade_date, fallback to date)
     const dateRaw = activity.trade_date || activity.date;
     if (!dateRaw) continue;
 
@@ -126,13 +117,11 @@ async function buildCashAndFlows(accountId, db) {
     date.setHours(0, 0, 0, 0);
     const dateKey = date.toISOString().split("T")[0];
 
-    // All activities contribute to cash flow
     cashFlowByDate.set(
       dateKey,
       (cashFlowByDate.get(dateKey) || 0) + amount
     );
 
-    // External flows (CONTRIBUTION, DEPOSIT, WITHDRAWAL)
     if (EXT_TYPES.has(type)) {
       let extAmount = amount;
       if (type === "WITHDRAWAL") {
@@ -145,9 +134,8 @@ async function buildCashAndFlows(accountId, db) {
     }
   }
 
-  // Build cumulative series
-  const cashValue = new Map(); // cumulative cash
-  const extFlowCum = new Map(); // cumulative external flows
+  const cashValue = new Map();
+  const extFlowCum = new Map();
 
   const allDates = new Set([
     ...cashFlowByDate.keys(),
@@ -184,7 +172,6 @@ function calculateReturns(portfolioData) {
     return portfolioData;
   }
 
-  // Calculate simple returns
   for (let i = 1; i < dates.length; i++) {
     const prevDate = dates[i - 1];
     const currDate = dates[i];
@@ -203,12 +190,10 @@ function calculateReturns(portfolioData) {
     }
   }
 
-  // First day has no return
   if (dates.length > 0) {
     portfolioData.get(dates[0]).simpleReturns = 0;
   }
 
-  // Identify active segments (portfolio has non-trivial value)
   const THRESH = 1e-3;
   const alive = new Map();
   for (const date of dates) {
@@ -216,7 +201,6 @@ function calculateReturns(portfolioData) {
     alive.set(date, (data.totalValue || 0) > THRESH);
   }
 
-  // Assign segment IDs
   const segmentId = new Map();
   let currentSegment = 0;
   let prevAlive = false;
@@ -230,7 +214,6 @@ function calculateReturns(portfolioData) {
     prevAlive = isAlive;
   }
 
-  // Calculate cumulative return and equity index per segment
   const cumReturn = new Map();
   const equityIndex = new Map();
 
@@ -255,13 +238,11 @@ function calculateReturns(portfolioData) {
     }
   }
 
-  // Fill in dead periods
   for (const date of dates) {
     const data = portfolioData.get(date);
     if (segmentId.get(date) === 0) {
-      // Dead period
-      data.cumReturn = cumReturn.get(date) || 0; // Carry forward or 0
-      data.equityIndex = null; // NaN equivalent (null in JSON)
+      data.cumReturn = cumReturn.get(date) || 0;
+      data.equityIndex = null;
     } else {
       data.cumReturn = cumReturn.get(date) || 0;
       data.equityIndex = equityIndex.get(date) || null;
@@ -276,7 +257,6 @@ function calculateReturns(portfolioData) {
  */
 async function getDateRange(accountId, fullSync, db) {
   if (fullSync) {
-    // Get first date from EquitiesWeightTimeseries
     const timeseriesCollection = db.collection("equitiesweighttimeseries");
     const firstPosition = await timeseriesCollection
       .find({ accountId: accountId })
@@ -294,7 +274,6 @@ async function getDateRange(accountId, fullSync, db) {
 
     return { startDate, endDate };
   } else {
-    // Get last date from PortfolioTimeseries
     const portfolioCollection = db.collection("portfoliotimeseries");
     const lastEntry = await portfolioCollection
       .find({ accountId: accountId })
@@ -303,16 +282,14 @@ async function getDateRange(accountId, fullSync, db) {
       .toArray();
 
     if (lastEntry.length === 0) {
-      // No existing data, do full sync
       return getDateRange(accountId, true, db);
     }
 
     const startDate = new Date(lastEntry[0].date);
-    startDate.setDate(startDate.getDate() + 1); // Start from next day
+    startDate.setDate(startDate.getDate() + 1);
     const endDate = new Date();
     endDate.setHours(23, 59, 59, 999);
 
-    // Also get first date to ensure we have complete range
     const timeseriesCollection = db.collection("equitiesweighttimeseries");
     const firstPosition = await timeseriesCollection
       .find({ accountId: accountId })
@@ -349,7 +326,6 @@ export async function updatePortfolioTimeseries(opts = {}) {
   const accountId = opts.accountId || null;
   const fullSync = opts.fullSync === true;
 
-  // Connect to MongoDB if not already connected
   if (mongoose.connection.readyState !== 1) {
     try {
       await mongoose.connect(databaseUrl, {
@@ -374,7 +350,6 @@ export async function updatePortfolioTimeseries(opts = {}) {
   };
 
   try {
-    // Get accounts to process
     const timeseriesCollection = db.collection("equitiesweighttimeseries");
     const query = {};
     if (userId) {
@@ -397,10 +372,8 @@ export async function updatePortfolioTimeseries(opts = {}) {
       `Processing ${accounts.length} account(s) (fullSync: ${fullSync})`
     );
 
-    // Process each account
     for (const acctId of accounts) {
       try {
-        // Get account userId
         const samplePosition = await timeseriesCollection.findOne({
           accountId: acctId,
         });
@@ -419,7 +392,6 @@ export async function updatePortfolioTimeseries(opts = {}) {
 
         console.log(`Processing account ${acctId} (user ${acctUserId})...`);
 
-        // Get date range to process
         const dateRange = await getDateRange(acctId, fullSync, db);
         if (!dateRange) {
           console.log(`No date range for account ${acctId}`);
@@ -427,10 +399,8 @@ export async function updatePortfolioTimeseries(opts = {}) {
           continue;
         }
 
-        // Build cash flows
         const cashFlows = await buildCashAndFlows(acctId, db);
 
-        // Build calendar date range
         const dates = [];
         const current = new Date(dateRange.startDate);
         const end = new Date(dateRange.endDate);
@@ -440,20 +410,17 @@ export async function updatePortfolioTimeseries(opts = {}) {
           current.setDate(current.getDate() + 1);
         }
 
-        // Build portfolio data for each date
         const portfolioData = new Map();
 
         for (const date of dates) {
           const dateKey = date.toISOString().split("T")[0];
 
-          // Calculate stock value
           const { stockValue, positions } = await calculateStockValue(
             acctId,
             date,
             db
           );
 
-          // Get cash value (forward fill from cash flows)
           let cashValue = 0;
           const cashFlowDates = Array.from(cashFlows.cashValue.keys()).sort();
           for (const cfDate of cashFlowDates) {
@@ -464,7 +431,6 @@ export async function updatePortfolioTimeseries(opts = {}) {
 
           const totalValue = stockValue + cashValue;
 
-          // Get external flows
           const depositWithdrawal = cashFlows.extFlowDay.get(dateKey) || 0;
           let externalFlowCumulative = 0;
           for (const cfDate of cashFlowDates) {
@@ -486,10 +452,8 @@ export async function updatePortfolioTimeseries(opts = {}) {
           });
         }
 
-        // Calculate returns
         calculateReturns(portfolioData);
 
-        // Store in database
         const portfolioCollection = db.collection("portfoliotimeseries");
         const ops = [];
 
@@ -567,7 +531,9 @@ export async function updatePortfolioTimeseries(opts = {}) {
   return summary;
 }
 
-// CLI runner
+/**
+ * CLI entry point when run directly
+ */
 if (
   typeof process !== "undefined" &&
   process.argv &&

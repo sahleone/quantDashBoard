@@ -7,8 +7,10 @@
  */
 
 /**
- * Calculate correlation between portfolio returns and benchmark returns
- * Correlation = Cov(X, Y) / (std(X) * std(Y))
+ * Calculates correlation coefficient between portfolio and benchmark returns
+ * @param {Array<number>} portfolioReturns - Array of portfolio returns
+ * @param {Array<number>} benchmarkReturns - Array of benchmark returns
+ * @returns {number|null} - Correlation coefficient (-1 to 1) or null if invalid
  */
 export function calculateCorrelation(portfolioReturns, benchmarkReturns) {
   if (
@@ -20,7 +22,6 @@ export function calculateCorrelation(portfolioReturns, benchmarkReturns) {
     return null;
   }
 
-  // Filter to valid pairs
   const pairs = [];
   for (let i = 0; i < portfolioReturns.length; i++) {
     const pRet = portfolioReturns[i];
@@ -39,13 +40,11 @@ export function calculateCorrelation(portfolioReturns, benchmarkReturns) {
     return null;
   }
 
-  // Calculate means
   const pMean =
     pairs.reduce((sum, p) => sum + p.portfolio, 0) / pairs.length;
   const bMean =
     pairs.reduce((sum, p) => sum + p.benchmark, 0) / pairs.length;
 
-  // Calculate covariance
   const covariance =
     pairs.reduce(
       (sum, p) =>
@@ -53,7 +52,6 @@ export function calculateCorrelation(portfolioReturns, benchmarkReturns) {
       0
     ) / pairs.length;
 
-  // Calculate standard deviations
   const pVariance =
     pairs.reduce((sum, p) => sum + Math.pow(p.portfolio - pMean, 2), 0) /
     pairs.length;
@@ -72,12 +70,12 @@ export function calculateCorrelation(portfolioReturns, benchmarkReturns) {
 }
 
 /**
- * Calculate cointegration between two price series
- * This is a simplified version - full cointegration testing requires
- * statistical tests like ADF (Augmented Dickey-Fuller) test.
- * 
- * For now, we'll return a placeholder that indicates if the series
- * appear to move together (correlation of price changes).
+ * Calculates a simplified cointegration measure between two price series.
+ * Uses correlation of returns as a proxy. For true cointegration testing,
+ * statistical tests like ADF (Augmented Dickey-Fuller) are required.
+ * @param {Array<number>} priceSeries1 - First price series
+ * @param {Array<number>} priceSeries2 - Second price series
+ * @returns {number|null} - Correlation coefficient or null if invalid input
  */
 export function calculateCointegration(priceSeries1, priceSeries2) {
   if (
@@ -89,7 +87,6 @@ export function calculateCointegration(priceSeries1, priceSeries2) {
     return null;
   }
 
-  // Calculate returns from prices
   const returns1 = [];
   const returns2 = [];
 
@@ -110,8 +107,6 @@ export function calculateCointegration(priceSeries1, priceSeries2) {
     }
   }
 
-  // Return correlation of returns as a proxy for cointegration
-  // Note: This is not a true cointegration test, but gives an indication
   return calculateCorrelation(returns1, returns2);
 }
 

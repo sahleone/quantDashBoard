@@ -88,29 +88,3 @@ export const authenticatedDelete = async (url, options = {}) => {
   const config = createAuthenticatedRequest(url, options);
   return axios.delete(config.url, config);
 };
-
-/**
- * Check if user is authenticated by verifying token exists
- * @returns {boolean} True if token exists, false otherwise
- */
-export const isAuthenticated = () => {
-  // With cookie-based auth we cannot reliably detect authentication client-side
-  // (httpOnly cookies are not readable from JS). Consumers should use
-  // `UserContext.userId` to check authentication state. Keep this function for
-  // backward compatibility but return `false` to encourage context usage.
-  console.warn(
-    "isAuthenticated() is deprecated for cookie-based auth. Use UserContext instead."
-  );
-  return false;
-};
-
-/**
- * Get the current access token
- * @returns {string|null} The access token or null if not found
- */
-export const getAccessToken = () => {
-  console.warn(
-    "getAccessToken() is not available when using httpOnly cookie-based auth."
-  );
-  return null;
-};

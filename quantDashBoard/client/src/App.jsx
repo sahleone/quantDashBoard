@@ -8,7 +8,7 @@ import {
 import axios from "axios";
 
 // context
-import UserContext from "./context/Usercontext";
+import UserContext from "./context/UserContext";
 
 // utils
 import { setupAuthInterceptors } from "./utils/authInterceptor";

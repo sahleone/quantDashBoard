@@ -1,9 +1,9 @@
 import dotenv from "dotenv";
 import mongoose from "mongoose";
-import { config } from "../quantDashBoard/server/src/config/environment.js";
+import { config } from "../../../quantDashBoard/server/src/config/environment.js";
 
 // load same .env used by other scripts
-dotenv.config({ path: "../quantDashBoard/server/src/.env" });
+dotenv.config({ path: "../../../quantDashBoard/server/src/.env" });
 
 async function testConnect() {
   const mongoUrl = config.DATABASE_URL;

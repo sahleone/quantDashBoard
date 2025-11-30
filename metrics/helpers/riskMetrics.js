@@ -10,34 +10,31 @@
  */
 
 /**
- * Calculate volatility (standard deviation of returns)
- * Annualized: volatility = std(returns) * sqrt(252) for daily data
+ * Calculates volatility (standard deviation of returns)
+ * @param {Array<number>} returns - Array of returns
+ * @param {boolean} annualized - Whether to annualize the result (default: true)
+ * @returns {number} - Volatility as a decimal
  */
 export function calculateVolatility(returns, annualized = true) {
   if (!returns || returns.length === 0) {
     return 0;
   }
 
-  // Filter out null/undefined returns
   const validReturns = returns.filter((r) => r !== null && r !== undefined);
 
   if (validReturns.length === 0) {
     return 0;
   }
 
-  // Calculate mean
   const mean =
     validReturns.reduce((sum, r) => sum + r, 0) / validReturns.length;
 
-  // Calculate variance
   const variance =
     validReturns.reduce((sum, r) => sum + Math.pow(r - mean, 2), 0) /
     validReturns.length;
 
-  // Standard deviation
   const stdDev = Math.sqrt(variance);
 
-  // Annualize if requested (assuming daily returns)
   if (annualized) {
     return stdDev * Math.sqrt(252);
   }
@@ -46,8 +43,10 @@ export function calculateVolatility(returns, annualized = true) {
 }
 
 /**
- * Calculate Beta
- * Beta = Cov(portfolio_returns, benchmark_returns) / Var(benchmark_returns)
+ * Calculates Beta (sensitivity to benchmark movements)
+ * @param {Array<number>} portfolioReturns - Array of portfolio returns
+ * @param {Array<number>} benchmarkReturns - Array of benchmark returns
+ * @returns {number|null} - Beta value or null if insufficient data
  */
 export function calculateBeta(portfolioReturns, benchmarkReturns) {
   if (
@@ -59,7 +58,6 @@ export function calculateBeta(portfolioReturns, benchmarkReturns) {
     return null;
   }
 
-  // Filter to valid pairs
   const pairs = [];
   for (let i = 0; i < portfolioReturns.length; i++) {
     const pRet = portfolioReturns[i];
@@ -78,13 +76,11 @@ export function calculateBeta(portfolioReturns, benchmarkReturns) {
     return null;
   }
 
-  // Calculate means
   const pMean =
     pairs.reduce((sum, p) => sum + p.portfolio, 0) / pairs.length;
   const bMean =
     pairs.reduce((sum, p) => sum + p.benchmark, 0) / pairs.length;
 
-  // Calculate covariance
   const covariance =
     pairs.reduce(
       (sum, p) =>
@@ -92,7 +88,6 @@ export function calculateBeta(portfolioReturns, benchmarkReturns) {
       0
     ) / pairs.length;
 
-  // Calculate benchmark variance
   const bVariance =
     pairs.reduce((sum, p) => sum + Math.pow(p.benchmark - bMean, 2), 0) /
     pairs.length;
@@ -105,16 +100,15 @@ export function calculateBeta(portfolioReturns, benchmarkReturns) {
 }
 
 /**
- * Calculate Maximum Drawdown from equity index
- * MaxDD = min((equityIndex[t] - peak[t]) / peak[t])
- * where peak[t] = max(equityIndex[0:t])
+ * Calculates Maximum Drawdown from equity index
+ * @param {Array<number>} equityIndex - Array of equity index values
+ * @returns {number} - Maximum drawdown as a positive decimal
  */
 export function calculateMaxDrawdown(equityIndex) {
   if (!equityIndex || equityIndex.length === 0) {
     return 0;
   }
 
-  // Filter out null values
   const validValues = equityIndex.filter(
     (v) => v !== null && v !== undefined && !isNaN(v)
   );
@@ -138,19 +132,20 @@ export function calculateMaxDrawdown(equityIndex) {
     }
   }
 
-  return Math.abs(maxDD); // Return as positive number
+  return Math.abs(maxDD);
 }
 
 /**
- * Calculate VaR (Value at Risk) using historical method
- * VaR_95 = quantile(losses, 0.95) where losses = -returns
+ * Calculates Value at Risk (VaR) using historical method
+ * @param {Array<number>} returns - Array of returns
+ * @param {number} confidence - Confidence level (default: 0.95)
+ * @returns {number} - VaR value (positive number representing potential loss)
  */
 export function calculateVaRHistorical(returns, confidence = 0.95) {
   if (!returns || returns.length === 0) {
     return 0;
   }
 
-  // Convert returns to losses
   const losses = returns
     .filter((r) => r !== null && r !== undefined)
     .map((r) => -r)
@@ -165,8 +160,10 @@ export function calculateVaRHistorical(returns, confidence = 0.95) {
 }
 
 /**
- * Calculate VaR using parametric method (assuming normal distribution)
- * VaR_95 = -(mean + z_0.95 * std) where z_0.95 ≈ 1.645
+ * Calculates Value at Risk (VaR) using parametric method (normal distribution)
+ * @param {Array<number>} returns - Array of returns
+ * @param {number} confidence - Confidence level (default: 0.95)
+ * @returns {number} - VaR value
  */
 export function calculateVaRParametric(returns, confidence = 0.95) {
   if (!returns || returns.length === 0) {
@@ -181,7 +178,6 @@ export function calculateVaRParametric(returns, confidence = 0.95) {
     return 0;
   }
 
-  // Calculate mean and std
   const mean =
     validReturns.reduce((sum, r) => sum + r, 0) / validReturns.length;
   const variance =
@@ -189,7 +185,6 @@ export function calculateVaRParametric(returns, confidence = 0.95) {
     validReturns.length;
   const std = Math.sqrt(variance);
 
-  // Z-score for confidence level
   const zScores = {
     0.95: 1.645,
     0.99: 2.326,
@@ -201,15 +196,16 @@ export function calculateVaRParametric(returns, confidence = 0.95) {
 }
 
 /**
- * Calculate CVaR (Conditional VaR / Expected Shortfall)
- * CVaR_95 = mean(losses | losses >= VaR_95)
+ * Calculates Conditional Value at Risk (CVaR) / Expected Shortfall
+ * @param {Array<number>} returns - Array of returns
+ * @param {number} var95 - VaR value at 95% confidence
+ * @returns {number} - CVaR value
  */
 export function calculateCVaR(returns, var95) {
   if (!returns || returns.length === 0 || var95 === null || var95 === undefined) {
     return 0;
   }
 
-  // Convert returns to losses
   const losses = returns
     .filter((r) => r !== null && r !== undefined)
     .map((r) => -r);
@@ -218,14 +214,12 @@ export function calculateCVaR(returns, var95) {
     return 0;
   }
 
-  // Filter losses >= VaR
   const tailLosses = losses.filter((loss) => loss >= var95);
 
   if (tailLosses.length === 0) {
     return var95;
   }
 
-  // Calculate mean of tail losses
   return tailLosses.reduce((sum, loss) => sum + loss, 0) / tailLosses.length;
 }
 

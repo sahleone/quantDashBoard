@@ -1,6 +1,6 @@
 import { useState, useEffect, useContext, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import UserContext from "../../context/Usercontext";
+import UserContext from "../../context/UserContext";
 import { authenticatedGet } from "../../utils/apiClient";
 
 const formatCurrency = (value, currency = "USD") => {

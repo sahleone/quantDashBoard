@@ -1,6 +1,6 @@
 import { Outlet, Navigate } from "react-router-dom";
 import { useContext } from "react";
-import UserContext from "../context/Usercontext";
+import UserContext from "../context/UserContext";
 
 const ProtectedRoutes = () => {
   const context = useContext(UserContext) || {};
@@ -8,7 +8,6 @@ const ProtectedRoutes = () => {
 
   // Treat absence of userId as unauthenticated
   const isAuthenticated = !!userId;
-
 
   return isAuthenticated ? <Outlet /> : <Navigate to="/" />;
 };

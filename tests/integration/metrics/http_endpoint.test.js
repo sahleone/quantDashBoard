@@ -1,10 +1,10 @@
 /**
  * HTTP test script for the metrics calculation endpoint
  * Tests the actual HTTP endpoint (requires server to be running)
- * 
+ *
  * Usage:
  *   1. Start the server: cd quantDashBoard/server && npm start
- *   2. Run this script: node metrics/test_http_endpoint.js
+ *   2. Run this script: node tests/integration/metrics/http_endpoint.test.js
  */
 
 const API_URL = process.env.API_URL || "http://localhost:3000";
@@ -105,4 +105,3 @@ testEndpoint().catch((error) => {
   console.error("Test failed:", error);
   process.exit(1);
 });
-

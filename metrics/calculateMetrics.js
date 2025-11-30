@@ -17,16 +17,17 @@ import Metrics from "../quantDashBoard/server/src/models/Metrics.js";
 import PortfolioTimeseries from "../quantDashBoard/server/src/models/PortfolioTimeseries.js";
 import AccountActivities from "../quantDashBoard/server/src/models/AccountActivities.js";
 import PriceHistory from "../quantDashBoard/server/src/models/PriceHistory.js";
-
-// Import helper functions
-import * as portfolioSnapshotMetrics from "./helper/portfolioSnapshotMetrics.js";
-import * as returnsMetrics from "./helper/returnsMetrics.js";
-import * as riskMetrics from "./helper/riskMetrics.js";
-import * as riskAdjustedMetrics from "./helper/riskAdjustedMetrics.js";
-import * as diversificationMetrics from "./helper/diversificationMetrics.js";
+import * as portfolioSnapshotMetrics from "./helpers/portfolioSnapshotMetrics.js";
+import * as returnsMetrics from "./helpers/returnsMetrics.js";
+import * as riskMetrics from "./helpers/riskMetrics.js";
+import * as riskAdjustedMetrics from "./helpers/riskAdjustedMetrics.js";
+import * as diversificationMetrics from "./helpers/diversificationMetrics.js";
 
 /**
- * Get date range for a period
+ * Calculates the date range for a given period ending at asOfDate
+ * @param {string} period - Period identifier (1M, 3M, YTD, 1Y, ITD)
+ * @param {Date} asOfDate - End date for the period
+ * @returns {{startDate: Date|null, endDate: Date}} - Date range object
  */
 function getPeriodDateRange(period, asOfDate) {
   const endDate = new Date(asOfDate);
@@ -49,8 +50,7 @@ function getPeriodDateRange(period, asOfDate) {
       startDate.setFullYear(startDate.getFullYear() - 1);
       break;
     case "ITD":
-      // ITD: from first data point to asOfDate
-      return { startDate: null, endDate }; // Will be determined from data
+      return { startDate: null, endDate };
     default:
       throw new Error(`Unknown period: ${period}`);
   }
@@ -60,12 +60,15 @@ function getPeriodDateRange(period, asOfDate) {
 }
 
 /**
- * Fetch benchmark returns (SPY) for beta calculation
+ * Fetches SPY benchmark returns for beta calculation
+ * @param {Date} startDate - Start date for benchmark data
+ * @param {Date} endDate - End date for benchmark data
+ * @param {Object} db - MongoDB database connection
+ * @returns {Array<number>|null} - Array of daily returns or null if insufficient data
  */
 async function fetchBenchmarkReturns(startDate, endDate, db) {
   const priceHistoryCollection = db.collection("pricehistories");
 
-  // Fetch SPY prices
   const prices = await priceHistoryCollection
     .find({
       symbol: "SPY",
@@ -78,7 +81,6 @@ async function fetchBenchmarkReturns(startDate, endDate, db) {
     return null;
   }
 
-  // Calculate returns
   const returns = [];
   for (let i = 1; i < prices.length; i++) {
     const prevPrice = prices[i - 1].close;
@@ -92,22 +94,20 @@ async function fetchBenchmarkReturns(startDate, endDate, db) {
 }
 
 /**
- * Calculate all metrics for a period
+ * Calculates all metrics for a specific account and period
+ * @param {string} accountId - Account ID
+ * @param {string} userId - User ID
+ * @param {string} period - Period identifier (1M, 3M, YTD, 1Y, ITD)
+ * @param {Date} asOfDate - End date for calculations
+ * @param {Object} db - MongoDB database connection
+ * @returns {Object|null} - Metrics object or null if no data available
  */
-async function calculatePeriodMetrics(
-  accountId,
-  userId,
-  period,
-  asOfDate,
-  db
-) {
-  // Get date range for period
+async function calculatePeriodMetrics(accountId, userId, period, asOfDate, db) {
   const { startDate: periodStart, endDate } = getPeriodDateRange(
     period,
     asOfDate
   );
 
-  // Fetch portfolio timeseries
   const portfolioCollection = db.collection("portfoliotimeseries");
   let query = {
     accountId: accountId,
@@ -127,11 +127,9 @@ async function calculatePeriodMetrics(
     return null;
   }
 
-  // For ITD, use first date as start
   const actualStartDate = periodStart || new Date(portfolioData[0].date);
   actualStartDate.setHours(0, 0, 0, 0);
 
-  // Fetch activities for income calculations
   const activitiesCollection = db.collection("snaptradeaccountactivities");
   const activities = await activitiesCollection
     .find({
@@ -143,7 +141,6 @@ async function calculatePeriodMetrics(
     })
     .toArray();
 
-  // Extract returns and equity index
   const returns = portfolioData
     .map((pt) => pt.simpleReturns)
     .filter((r) => r !== null && r !== undefined);
@@ -151,14 +148,10 @@ async function calculatePeriodMetrics(
     .map((pt) => pt.equityIndex)
     .filter((ei) => ei !== null && ei !== undefined);
 
-  // Get latest portfolio data
   const latest = portfolioData[portfolioData.length - 1];
   const first = portfolioData[0];
 
-  // Calculate metrics
   const metrics = {};
-
-  // Portfolio snapshot metrics
   metrics.aum = portfolioSnapshotMetrics.calculateAUM(portfolioData);
   const allocation = portfolioSnapshotMetrics.calculateAssetAllocation(
     latest.positions || [],
@@ -180,18 +173,15 @@ async function calculatePeriodMetrics(
     endDate
   );
 
-  // Calculate average portfolio value
   const avgPortfolioValue =
     portfolioData.reduce((sum, pt) => sum + (pt.totalValue || 0), 0) /
     portfolioData.length;
-  metrics.totalIncomeYield =
-    portfolioSnapshotMetrics.calculateTotalIncomeYield(
-      metrics.dividendIncome,
-      metrics.interestIncome,
-      avgPortfolioValue
-    );
+  metrics.totalIncomeYield = portfolioSnapshotMetrics.calculateTotalIncomeYield(
+    metrics.dividendIncome,
+    metrics.interestIncome,
+    avgPortfolioValue
+  );
 
-  // Returns metrics
   const startValue = first.totalValue || 0;
   const endValue = latest.totalValue || 0;
   metrics.totalReturn = returnsMetrics.calculatePointToPointReturn(
@@ -199,19 +189,15 @@ async function calculatePeriodMetrics(
     endValue
   );
 
-  const days = Math.ceil(
-    (endDate - actualStartDate) / (1000 * 60 * 60 * 24)
-  );
+  const days = Math.ceil((endDate - actualStartDate) / (1000 * 60 * 60 * 24));
   const years = days / 365.25;
   metrics.cagr = returnsMetrics.calculateCAGR(startValue, endValue, years);
 
-  // Risk metrics
   metrics.volatility = riskMetrics.calculateVolatility(returns, true);
   metrics.maxDrawdown = riskMetrics.calculateMaxDrawdown(equityIndex);
   metrics.var95 = riskMetrics.calculateVaRHistorical(returns, 0.95);
   metrics.cvar95 = riskMetrics.calculateCVaR(returns, metrics.var95);
 
-  // Beta (requires benchmark)
   try {
     const benchmarkReturns = await fetchBenchmarkReturns(
       actualStartDate,
@@ -228,7 +214,6 @@ async function calculatePeriodMetrics(
     metrics.beta = null;
   }
 
-  // Risk-adjusted metrics
   metrics.sharpe = riskAdjustedMetrics.calculateSharpeRatio(returns, 0, true);
   metrics.sortino = riskAdjustedMetrics.calculateSortinoRatio(returns, 0, true);
   metrics.nav = latest.totalValue || 0;
@@ -253,7 +238,6 @@ export async function calculateMetrics(opts = {}) {
   const accountId = opts.accountId || null;
   const fullSync = opts.fullSync === true;
 
-  // Connect to MongoDB if not already connected
   if (mongoose.connection.readyState !== 1) {
     try {
       await mongoose.connect(databaseUrl, {
@@ -278,7 +262,6 @@ export async function calculateMetrics(opts = {}) {
   };
 
   try {
-    // Get accounts to process
     const portfolioCollection = db.collection("portfoliotimeseries");
     const query = {};
     if (userId) {
@@ -303,10 +286,8 @@ export async function calculateMetrics(opts = {}) {
     const asOfDate = new Date();
     asOfDate.setHours(23, 59, 59, 999);
 
-    // Process each account
     for (const acctId of accounts) {
       try {
-        // Get account userId
         const samplePortfolio = await portfolioCollection.findOne({
           accountId: acctId,
         });
@@ -323,7 +304,6 @@ export async function calculateMetrics(opts = {}) {
 
         console.log(`Processing account ${acctId} (user ${acctUserId})...`);
 
-        // Calculate metrics for each period
         for (const period of periods) {
           try {
             summary.totalPeriods++;
@@ -337,13 +317,10 @@ export async function calculateMetrics(opts = {}) {
             );
 
             if (!metrics) {
-              console.log(
-                `  - ${period}: No data available for this period`
-              );
+              console.log(`  - ${period}: No data available for this period`);
               continue;
             }
 
-            // Store in database
             const metricsCollection = db.collection("snaptrademetrics");
             await metricsCollection.updateOne(
               {
@@ -382,7 +359,10 @@ export async function calculateMetrics(opts = {}) {
           }
         }
       } catch (err) {
-        console.error(`Error processing account ${acctId}:`, err?.message || err);
+        console.error(
+          `Error processing account ${acctId}:`,
+          err?.message || err
+        );
         summary.errors.push({
           accountId: acctId,
           error: err?.message || String(err),
@@ -406,7 +386,9 @@ export async function calculateMetrics(opts = {}) {
   return summary;
 }
 
-// CLI runner
+/**
+ * CLI entry point when run directly
+ */
 if (
   typeof process !== "undefined" &&
   process.argv &&
@@ -431,4 +413,3 @@ if (
     }
   })();
 }
-

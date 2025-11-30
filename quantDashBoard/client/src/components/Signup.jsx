@@ -1,6 +1,6 @@
 import React, { useRef, useState, useContext } from "react";
 import { useNavigate } from "react-router-dom";
-import UserContext from "../context/Usercontext";
+import UserContext from "../context/UserContext";
 import axios from "axios";
 
 function Signup() {

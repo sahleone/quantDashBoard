@@ -1,22 +1,18 @@
-// Etl helper utilities
-
 import mongoose from "mongoose";
 
 /**
- * Get the last activity date for an account from the Activities collection.
- * Prefers `trade_date` (SnapTrade) then `date` (normalized). Returns
- * a string in YYYY-MM-DD format or null if no activity.
- *
- * This function uses direct MongoDB queries to avoid model connection issues.
+ * Gets the last activity date for an account from the Activities collection.
+ * Prefers `trade_date` (SnapTrade) then `date` (normalized).
+ * @param {Object} ActivitiesModel - Mongoose model (unused, kept for compatibility)
+ * @param {string} accountId - Account ID to query
+ * @returns {Promise<string|null>} - Date string in YYYY-MM-DD format or null if no activity
  */
 export async function getLastActivityDate(ActivitiesModel, accountId) {
   if (!accountId) throw new Error("getLastActivityDate: accountId is required");
 
-  // Use direct connection query since model queries are timing out
   const db = mongoose.connection.db;
   const activitiesCollection = db.collection("snaptradeaccountactivities");
-  
-  // Find latest by trade_date or date (descending)
+
   const activity = await activitiesCollection
     .findOne(
       { accountId },

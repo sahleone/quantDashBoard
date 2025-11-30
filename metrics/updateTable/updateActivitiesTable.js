@@ -17,12 +17,10 @@
  */
 
 import mongoose from "mongoose";
-
-// Project models and client - paths are relative to this metrics folder
 import AccountsList from "../../quantDashBoard/server/src/models/AccountsList.js";
 import Activities from "../../quantDashBoard/server/src/models/AccountActivities.js";
 import AccountServiceClientService from "../../quantDashBoard/server/src/clients/accountClient.js";
-import getLastActivityDate from "../helper/helper.js";
+import getLastActivityDate from "../helpers/helper.js";
 import Users from "../../quantDashBoard/server/src/models/Users.js";
 
 /**
@@ -57,10 +55,8 @@ export async function updateAccountActivitiesTable(opts = {}) {
     opts.activityTypes ||
     "BUY,SELL,DIVIDEND,CONTRIBUTION,WITHDRAWAL,REI,STOCK_DIVIDEND,INTEREST,FEE,OPTIONEXPIRATION,OPTIONASSIGNMENT,OPTIONEXERCISE,TRANSFER";
   const userSecrets = opts.userSecrets || {};
-  // userSecrets may be provided by callers but are not used in bulk mode.
   const userId = opts.userId || null;
 
-  // Connect to MongoDB if not already connected
   if (mongoose.connection.readyState !== 1) {
     try {
       await mongoose.connect(databaseUrl, {
@@ -75,12 +71,10 @@ export async function updateAccountActivitiesTable(opts = {}) {
         ")"
       );
 
-      // Test connection with a ping to ensure it's actually working
       try {
         await mongoose.connection.db.admin().ping();
         console.log("Database ping successful - connection is ready");
 
-        // Test a direct query to see if the connection works for queries
         const db = mongoose.connection.db;
         const usersCollection = db.collection("users");
         const userCount = await usersCollection.countDocuments({});
@@ -109,9 +103,12 @@ export async function updateAccountActivitiesTable(opts = {}) {
 
   const accountService = new AccountServiceClientService();
 
-  // Process accounts for a single user using provided userSecret
+  /**
+   * Process all accounts for a single user
+   * @param {string} userId - User ID to process
+   * @param {string} userSecret - SnapTrade user secret
+   */
   async function processAccountsForUser(userId, userSecret) {
-    // Use direct connection query since model queries are timing out
     const db = mongoose.connection.db;
     const accountsCollection = db.collection("snaptradeaccounts");
     const accounts = await accountsCollection.find({ userId }).toArray();
@@ -164,7 +161,6 @@ export async function updateAccountActivitiesTable(opts = {}) {
         }));
 
         if (ops.length > 0) {
-          // Use direct connection bulkWrite since model queries are timing out
           const db = mongoose.connection.db;
           const activitiesCollection = db.collection(
             "snaptradeaccountactivities"
@@ -196,17 +192,13 @@ export async function updateAccountActivitiesTable(opts = {}) {
     }
   }
 
-  // Decide which users to process based on opts
-  const passedUserSecret = opts.userSecret || null; // optional secret when caller provides userId + userSecret
+  const passedUserSecret = opts.userSecret || null;
   const targetUserId = opts.userId || null;
 
-  // If a specific userId is provided, only update that user's accounts.
-  // If userSecret isn't provided, look it up in the Users collection.
   if (targetUserId) {
     let userSecretToUse = opts.userSecret || null;
 
     if (!userSecretToUse) {
-      // Use direct connection query since model queries are timing out
       const db = mongoose.connection.db;
       const usersCollection = db.collection("users");
       const userDoc = await usersCollection.findOne({ userId: targetUserId });
@@ -239,9 +231,7 @@ export async function updateAccountActivitiesTable(opts = {}) {
     return summary;
   }
 
-  // Bulk mode: iterate all users and use the `userSecret` stored in Users.
   console.log("Running bulk update for all users");
-  // Use direct connection query since model queries are timing out
   const db = mongoose.connection.db;
   const usersCollection = db.collection("users");
   const users = await usersCollection.find({}).toArray();
@@ -271,13 +261,13 @@ export async function updateAccountActivitiesTable(opts = {}) {
     }
   }
 
-  // Close connection
   await mongoose.disconnect();
-
   return summary;
 }
 
-// CLI runner
+/**
+ * CLI entry point when run directly
+ */
 if (
   typeof process !== "undefined" &&
   process.argv &&

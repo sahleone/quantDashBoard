@@ -8,8 +8,10 @@
  */
 
 /**
- * Calculate point-to-point return
- * R = (V_T - V_0) / V_0
+ * Calculates point-to-point return
+ * @param {number} startValue - Initial portfolio value
+ * @param {number} endValue - Final portfolio value
+ * @returns {number} - Return as a decimal (e.g., 0.1 = 10%)
  */
 export function calculatePointToPointReturn(startValue, endValue) {
   if (!startValue || startValue <= 0) {
@@ -19,8 +21,11 @@ export function calculatePointToPointReturn(startValue, endValue) {
 }
 
 /**
- * Calculate CAGR (Compound Annual Growth Rate)
- * CAGR = (V_T / V_0)^(1/Y) - 1 where Y = years
+ * Calculates Compound Annual Growth Rate (CAGR)
+ * @param {number} startValue - Initial portfolio value
+ * @param {number} endValue - Final portfolio value
+ * @param {number} years - Number of years
+ * @returns {number} - CAGR as a decimal (e.g., 0.1 = 10%), or -1 for total loss
  */
 export function calculateCAGR(startValue, endValue, years) {
   if (!startValue || startValue <= 0 || !years || years <= 0) {
@@ -33,16 +38,16 @@ export function calculateCAGR(startValue, endValue, years) {
 }
 
 /**
- * Calculate CAGR from daily returns
- * CAGR = (product(1 + r_t))^(252/T) - 1 for daily data
- * where 252 = trading days per year, T = number of days
+ * Calculates CAGR from daily returns
+ * @param {Array<number>} returns - Array of daily returns
+ * @param {number} days - Number of trading days
+ * @returns {number} - CAGR as a decimal
  */
 export function calculateCAGRFromReturns(returns, days) {
   if (!returns || returns.length === 0 || !days || days <= 0) {
     return 0;
   }
 
-  // Calculate cumulative return
   let product = 1;
   for (const ret of returns) {
     product *= 1 + (ret || 0);
@@ -59,15 +64,16 @@ export function calculateCAGRFromReturns(returns, days) {
 }
 
 /**
- * Calculate Time-Weighted Return (TWR)
- * Split period at cash flow dates and compound subperiod returns
+ * Calculates Time-Weighted Return (TWR) by splitting periods at cash flows
+ * @param {Array} portfolioTimeseries - Array of portfolio timeseries records
+ * @param {Array<Date>} cashFlowDates - Array of dates with cash flows
+ * @returns {number} - TWR as a decimal
  */
 export function calculateTWR(portfolioTimeseries, cashFlowDates) {
   if (!portfolioTimeseries || portfolioTimeseries.length === 0) {
     return 0;
   }
 
-  // If no cash flows, use simple cumulative return
   if (!cashFlowDates || cashFlowDates.length === 0) {
     const first = portfolioTimeseries[0];
     const last = portfolioTimeseries[portfolioTimeseries.length - 1];
@@ -77,12 +83,10 @@ export function calculateTWR(portfolioTimeseries, cashFlowDates) {
     );
   }
 
-  // Split into subperiods at cash flow dates
   const subperiods = [];
   let currentPeriodStart = 0;
 
   for (const cfDate of cashFlowDates) {
-    // Find index of cash flow date
     const cfIndex = portfolioTimeseries.findIndex(
       (pt) =>
         new Date(pt.date).toISOString().split("T")[0] ===
@@ -90,7 +94,6 @@ export function calculateTWR(portfolioTimeseries, cashFlowDates) {
     );
 
     if (cfIndex > currentPeriodStart) {
-      // Calculate return for this subperiod
       const periodStart = portfolioTimeseries[currentPeriodStart];
       const periodEnd = portfolioTimeseries[cfIndex - 1];
       const periodReturn = calculatePointToPointReturn(
@@ -102,7 +105,6 @@ export function calculateTWR(portfolioTimeseries, cashFlowDates) {
     }
   }
 
-  // Calculate return for final subperiod
   if (currentPeriodStart < portfolioTimeseries.length - 1) {
     const periodStart = portfolioTimeseries[currentPeriodStart];
     const periodEnd = portfolioTimeseries[portfolioTimeseries.length - 1];
@@ -113,7 +115,6 @@ export function calculateTWR(portfolioTimeseries, cashFlowDates) {
     subperiods.push(periodReturn);
   }
 
-  // Compound subperiod returns
   let twr = 1;
   for (const periodReturn of subperiods) {
     twr *= 1 + periodReturn;

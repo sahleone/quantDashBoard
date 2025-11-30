@@ -8,9 +8,11 @@
  */
 
 /**
- * Calculate Sharpe Ratio
- * Sharpe = (mean_return - risk_free_rate) / volatility
- * Annualized: Sharpe = (mean_daily_return * 252 - R_f) / (volatility_daily * sqrt(252))
+ * Calculates Sharpe Ratio (risk-adjusted return measure)
+ * @param {Array<number>} returns - Array of returns
+ * @param {number} riskFreeRate - Risk-free rate (default: 0)
+ * @param {boolean} annualized - Whether to annualize (default: true)
+ * @returns {number|null} - Sharpe ratio or null if volatility is zero
  */
 export function calculateSharpeRatio(
   returns,
@@ -29,11 +31,9 @@ export function calculateSharpeRatio(
     return null;
   }
 
-  // Calculate mean return
   const meanReturn =
     validReturns.reduce((sum, r) => sum + r, 0) / validReturns.length;
 
-  // Calculate volatility
   const variance =
     validReturns.reduce((sum, r) => sum + Math.pow(r - meanReturn, 2), 0) /
     validReturns.length;
@@ -43,7 +43,6 @@ export function calculateSharpeRatio(
     return null;
   }
 
-  // Annualize if requested
   let annualizedReturn = meanReturn;
   let annualizedVol = volatility;
   if (annualized) {
@@ -55,10 +54,11 @@ export function calculateSharpeRatio(
 }
 
 /**
- * Calculate Sortino Ratio
- * Sortino = (mean_return - MAR) / downside_deviation
- * downside_deviation = sqrt(mean((returns < MAR)^2))
- * MAR = Minimum Acceptable Return (often 0 or risk-free rate)
+ * Calculates Sortino Ratio (downside risk-adjusted return measure)
+ * @param {Array<number>} returns - Array of returns
+ * @param {number} mar - Minimum Acceptable Return (default: 0)
+ * @param {boolean} annualized - Whether to annualize (default: true)
+ * @returns {number|null} - Sortino ratio or null if no downside risk
  */
 export function calculateSortinoRatio(
   returns,
@@ -77,30 +77,23 @@ export function calculateSortinoRatio(
     return null;
   }
 
-  // Calculate mean return
   const meanReturn =
     validReturns.reduce((sum, r) => sum + r, 0) / validReturns.length;
 
-  // Calculate downside deviation (only negative deviations from MAR)
-  // Standard Sortino formula: sqrt(mean of squared negative deviations)
-  // Mean is calculated over ALL observations (n), not just negative ones
   const squaredDownsideDeviations = validReturns.map((r) => {
     const deviation = r - mar;
     return deviation < 0 ? deviation * deviation : 0;
   });
 
-  // Sum all squared deviations (including zeros for non-negative returns)
   const sumSquaredDownsideDeviations = squaredDownsideDeviations.reduce(
     (sum, d) => sum + d,
     0
   );
 
-  // Check if there are any negative deviations
   if (sumSquaredDownsideDeviations === 0) {
-    return null; // No downside risk
+    return null;
   }
 
-  // Divide by total number of observations (n), not just count of negative deviations
   const downsideVariance =
     sumSquaredDownsideDeviations / validReturns.length;
   const downsideDeviation = Math.sqrt(downsideVariance);
@@ -109,7 +102,6 @@ export function calculateSortinoRatio(
     return null;
   }
 
-  // Annualize if requested
   let annualizedReturn = meanReturn;
   let annualizedDownsideDev = downsideDeviation;
   if (annualized) {
@@ -121,8 +113,10 @@ export function calculateSortinoRatio(
 }
 
 /**
- * Calculate Return / Max Drawdown ratio
- * Return/MaxDD = Return_period / |MaxDD|
+ * Calculates Return over Maximum Drawdown ratio
+ * @param {number} totalReturn - Total return for the period
+ * @param {number} maxDrawdown - Maximum drawdown value
+ * @returns {number|null} - Ratio or null if maxDrawdown is zero
  */
 export function calculateReturnOverMaxDD(totalReturn, maxDrawdown) {
   if (!maxDrawdown || maxDrawdown === 0) {

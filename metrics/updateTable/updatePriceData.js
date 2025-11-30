@@ -66,9 +66,7 @@ async function getSymbolDateRange(symbol, opts = {}) {
   const minDate = new Date(dates[0].date);
   const maxDate = new Date(dates[dates.length - 1].date);
 
-  // For fullSync, fetch from first position date to today
-  // For incremental, only fetch missing dates
-  const endDate = new Date(); // Today
+  const endDate = new Date();
   endDate.setHours(23, 59, 59, 999);
 
   return { startDate: minDate, endDate };
@@ -94,7 +92,6 @@ async function getExistingPriceDates(symbol) {
  */
 async function getMissingDates(symbol, requiredDateRange, opts = {}) {
   if (opts.forceRefresh) {
-    // Fetch all dates in range
     const dates = [];
     const current = new Date(requiredDateRange.startDate);
     const end = new Date(requiredDateRange.endDate);
@@ -105,10 +102,7 @@ async function getMissingDates(symbol, requiredDateRange, opts = {}) {
     return dates;
   }
 
-  // Get existing dates
   const existingDates = await getExistingPriceDates(symbol);
-
-  // Find missing dates
   const missingDates = [];
   const current = new Date(requiredDateRange.startDate);
   const end = new Date(requiredDateRange.endDate);
@@ -129,20 +123,17 @@ async function getMissingDates(symbol, requiredDateRange, opts = {}) {
  */
 async function processSymbol(symbol, opts = {}) {
   try {
-    // Get date range needed for this symbol
     const dateRange = await getSymbolDateRange(symbol, opts);
     if (!dateRange) {
       return { symbol, status: "skipped", reason: "no_positions" };
     }
 
-    // Determine which dates to fetch
     const missingDates = await getMissingDates(symbol, dateRange, opts);
 
     if (missingDates.length === 0 && !opts.forceRefresh) {
       return { symbol, status: "skipped", reason: "no_missing_dates" };
     }
 
-    // Fetch prices for the date range
     const prices = await fetchHistoricalPrices(
       symbol,
       dateRange.startDate,
@@ -153,7 +144,6 @@ async function processSymbol(symbol, opts = {}) {
       return { symbol, status: "error", reason: "no_price_data" };
     }
 
-    // Filter to only missing dates if not forceRefresh
     let pricesToStore = prices;
     if (!opts.forceRefresh && missingDates.length > 0) {
       const missingDateKeys = new Set(
@@ -165,7 +155,6 @@ async function processSymbol(symbol, opts = {}) {
       });
     }
 
-    // Store prices in database
     const db = mongoose.connection.db;
     const priceHistoryCollection = db.collection("pricehistories");
 
@@ -228,7 +217,6 @@ export async function updatePriceData(opts = {}) {
   const fullSync = opts.fullSync === true;
   const forceRefresh = opts.forceRefresh === true;
 
-  // Connect to MongoDB if not already connected
   if (mongoose.connection.readyState !== 1) {
     try {
       await mongoose.connect(databaseUrl, {
@@ -252,7 +240,6 @@ export async function updatePriceData(opts = {}) {
   };
 
   try {
-    // Get all unique symbols
     const symbols = await getUniqueSymbols({ userId, accountId });
     summary.totalSymbols = symbols.length;
 
@@ -266,7 +253,6 @@ export async function updatePriceData(opts = {}) {
       `Processing ${symbols.length} symbol(s) (fullSync: ${fullSync}, forceRefresh: ${forceRefresh})`
     );
 
-    // Process each symbol
     for (let i = 0; i < symbols.length; i++) {
       const symbol = symbols[i];
       console.log(`[${i + 1}/${symbols.length}] Processing ${symbol}...`);
@@ -309,7 +295,9 @@ export async function updatePriceData(opts = {}) {
   return summary;
 }
 
-// CLI runner
+/**
+ * CLI entry point when run directly
+ */
 if (
   typeof process !== "undefined" &&
   process.argv &&

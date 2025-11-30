@@ -1,6 +1,6 @@
 import { useState, useEffect, useContext, useRef, useCallback } from "react";
 import "./ConnectBrokerage.css";
-import UserContext from "../../context/Usercontext";
+import UserContext from "../../context/UserContext";
 import { authenticatedGet, authenticatedPost } from "../../utils/apiClient";
 import RefreshButton from "../refreshButton/refreshButton";
 

@@ -5,7 +5,7 @@ import Profile from "../../components/profile/Profile";
 import Preferences from "../../components/preferences/Preferences";
 import Connections from "../../components/connections/Connections";
 import { authenticatedGet, authenticatedPost } from "../../utils/apiClient";
-import UserContext from "../../context/Usercontext";
+import UserContext from "../../context/UserContext";
 
 // Helper function to make authenticated requests using the API client
 const makeAuthenticatedRequest = async (url, options = {}) => {

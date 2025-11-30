@@ -1,7 +1,7 @@
 import { useState, useContext } from "react";
 import "./refreshButton.css";
 import { authenticatedPost } from "../../utils/apiClient";
-import UserContext from "../../context/Usercontext";
+import UserContext from "../../context/UserContext";
 
 /**
  * RefreshButton

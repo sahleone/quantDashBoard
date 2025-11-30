@@ -1,6 +1,6 @@
 import "./Positions.css";
 import { useContext, useEffect, useState } from "react";
-import UserContext from "../../context/Usercontext";
+import UserContext from "../../context/UserContext";
 import { authenticatedGet } from "../../utils/apiClient";
 
 function Positions() {

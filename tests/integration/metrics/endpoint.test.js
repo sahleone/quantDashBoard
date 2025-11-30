@@ -3,7 +3,7 @@
  * Tests the endpoint logic without requiring the full server
  */
 
-import { runMetricsPipeline } from "./runMetricsPipeline.js";
+import { runMetricsPipeline } from "../../../metrics/runMetricsPipeline.js";
 
 async function testEndpoint() {
   console.log("Testing metrics calculation endpoint logic...\n");
@@ -56,4 +56,3 @@ testEndpoint().catch((error) => {
   console.error("Test failed:", error);
   process.exit(1);
 });
-

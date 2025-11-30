@@ -14,22 +14,20 @@
  */
 
 import mongoose from "mongoose";
-
-// Project models - paths are relative to this metrics folder
 import EquitiesWeightTimeseries from "../../quantDashBoard/server/src/models/EquitiesWeightTimeseries.js";
 
 /**
- * Extract position symbol from an activity record.
- * For options, uses option_symbol.ticker; otherwise uses symbol.symbol or symbol.raw_symbol.
+ * Extracts the position symbol from an activity record.
+ * Prioritizes option symbols, then regular symbols, then string fallback.
+ * @param {Object} activity - Activity record
+ * @returns {string|null} - Symbol string or null if not found
  */
 function extractPositionSymbol(activity) {
-  // Check for option symbol first
   const optionSym = activity.option_symbol;
   if (optionSym && typeof optionSym === "object" && optionSym.ticker) {
     return String(optionSym.ticker).trim();
   }
 
-  // Check for regular symbol
   const sym = activity.symbolObj || activity.symbol;
   if (sym && typeof sym === "object") {
     const ticker = sym.symbol || sym.raw_symbol;
@@ -38,7 +36,6 @@ function extractPositionSymbol(activity) {
     }
   }
 
-  // Fallback to string symbol field
   if (activity.symbol && typeof activity.symbol === "string") {
     return activity.symbol.trim();
   }
@@ -47,8 +44,9 @@ function extractPositionSymbol(activity) {
 }
 
 /**
- * Compute signed units for an activity.
- * SELL => negative, BUY/REI => positive, option events => negative, else 0.
+ * Computes signed units for an activity based on transaction type.
+ * @param {Object} activity - Activity record
+ * @returns {number} - Positive for buys, negative for sells/option closures
  */
 function signedUnits(activity) {
   const type = String(activity.type || "").toUpperCase();
@@ -63,7 +61,6 @@ function signedUnits(activity) {
     type === "OPTIONEXERCISE" ||
     type === "OPTIONEXPIRATION"
   ) {
-    // Close out existing option contracts
     return -Math.abs(units);
   }
 
@@ -71,8 +68,10 @@ function signedUnits(activity) {
 }
 
 /**
- * Build daily positions timeseries from activities.
- * Returns a Map of date -> Map of symbol -> units.
+ * Builds daily positions timeseries from activities by aggregating transactions
+ * and rolling forward positions day by day.
+ * @param {Array} activities - Array of activity records
+ * @returns {Map<string, Map<string, number>>} - Map of date -> Map of symbol -> units
  */
 function buildDailyPositions(activities) {
   const POSITION_TYPES = new Set([
@@ -84,8 +83,7 @@ function buildDailyPositions(activities) {
     "OPTIONEXPIRATION",
   ]);
 
-  // Aggregate transactions by date & symbol
-  const transactionsByDate = new Map(); // date -> Map(symbol -> delta_units)
+  const transactionsByDate = new Map();
 
   for (const activity of activities) {
     const type = String(activity.type || "").toUpperCase();
@@ -98,16 +96,14 @@ function buildDailyPositions(activities) {
       continue;
     }
 
-    // Use trade_date or date field
     const tradeDateRaw = activity.trade_date || activity.date;
     if (!tradeDateRaw) {
       continue;
     }
 
-    // Normalize to date (remove time component)
     const tradeDate = new Date(tradeDateRaw);
     tradeDate.setHours(0, 0, 0, 0);
-    const dateKey = tradeDate.toISOString().split("T")[0]; // YYYY-MM-DD
+    const dateKey = tradeDate.toISOString().split("T")[0];
 
     const units = signedUnits(activity);
     if (Math.abs(units) < 1e-6) {
@@ -125,12 +121,10 @@ function buildDailyPositions(activities) {
     return new Map();
   }
 
-  // Get date range
   const dates = Array.from(transactionsByDate.keys()).sort();
   const minDate = new Date(dates[0]);
   const maxDate = new Date(dates[dates.length - 1]);
 
-  // Build calendar date range
   const dateRange = [];
   const current = new Date(minDate);
   while (current <= maxDate) {
@@ -138,14 +132,12 @@ function buildDailyPositions(activities) {
     current.setDate(current.getDate() + 1);
   }
 
-  // Roll forward positions day by day
-  const positionsByDate = new Map(); // date -> Map(symbol -> units)
-  const currentPositions = new Map(); // symbol -> units
+  const positionsByDate = new Map();
+  const currentPositions = new Map();
 
   for (const date of dateRange) {
     const dateKey = date.toISOString().split("T")[0];
 
-    // Apply transactions for this date
     if (transactionsByDate.has(dateKey)) {
       const dayTransactions = transactionsByDate.get(dateKey);
       for (const [symbol, deltaUnits] of dayTransactions) {
@@ -158,7 +150,6 @@ function buildDailyPositions(activities) {
       }
     }
 
-    // Store snapshot of current positions for this date
     positionsByDate.set(dateKey, new Map(currentPositions));
   }
 
@@ -207,7 +198,6 @@ export async function updateEquitiesWeightTable(opts = {}) {
         ")"
       );
 
-      // Test connection
       try {
         await mongoose.connection.db.admin().ping();
         console.log("Database ping successful - connection is ready");
@@ -234,7 +224,6 @@ export async function updateEquitiesWeightTable(opts = {}) {
   const db = mongoose.connection.db;
   const activitiesCollection = db.collection("snaptradeaccountactivities");
 
-  // Build query for activities
   const activityQuery = {};
   if (userId) {
     activityQuery.userId = userId;
@@ -243,7 +232,6 @@ export async function updateEquitiesWeightTable(opts = {}) {
     activityQuery.accountId = accountId;
   }
 
-  // Get distinct accounts from activities
   const accounts = await activitiesCollection.distinct(
     "accountId",
     activityQuery
@@ -258,10 +246,8 @@ export async function updateEquitiesWeightTable(opts = {}) {
 
   console.log(`Processing ${accounts.length} account(s)`);
 
-  // Process each account
   for (const acctId of accounts) {
     try {
-      // Get account info (userId) from first activity
       const sampleActivity = await activitiesCollection.findOne({
         accountId: acctId,
       });
@@ -278,14 +264,12 @@ export async function updateEquitiesWeightTable(opts = {}) {
         continue;
       }
 
-      // Fetch all activities for this account
-      // Use cursor with timeout settings to handle large datasets
       const activities = [];
       const cursor = activitiesCollection
         .find({ accountId: acctId })
         .sort({ trade_date: 1, date: 1 })
         .batchSize(1000)
-        .maxTimeMS(300000); // 5 minute timeout
+        .maxTimeMS(300000);
 
       for await (const activity of cursor) {
         activities.push(activity);
@@ -301,7 +285,6 @@ export async function updateEquitiesWeightTable(opts = {}) {
         `Processing ${activities.length} activities for account ${acctId} (user ${acctUserId})`
       );
 
-      // Build daily positions
       const positionsByDate = buildDailyPositions(activities);
 
       if (positionsByDate.size === 0) {
@@ -310,7 +293,6 @@ export async function updateEquitiesWeightTable(opts = {}) {
         continue;
       }
 
-      // Prepare bulk write operations
       const ops = [];
       for (const [dateKey, symbolMap] of positionsByDate) {
         const date = new Date(dateKey);
@@ -340,7 +322,6 @@ export async function updateEquitiesWeightTable(opts = {}) {
       if (ops.length > 0) {
         const timeseriesCollection = db.collection("equitiesweighttimeseries");
 
-        // Process in batches to avoid timeout
         const BATCH_SIZE = 1000;
         let totalUpserted = 0;
         let totalModified = 0;
@@ -368,7 +349,6 @@ export async function updateEquitiesWeightTable(opts = {}) {
               `Error in batch ${i}-${i + BATCH_SIZE}:`,
               batchErr?.message || batchErr
             );
-            // Continue with next batch
           }
         }
 
@@ -392,13 +372,13 @@ export async function updateEquitiesWeightTable(opts = {}) {
     }
   }
 
-  // Close connection
   await mongoose.disconnect();
-
   return summary;
 }
 
-// CLI runner
+/**
+ * CLI entry point when run directly
+ */
 if (
   typeof process !== "undefined" &&
   process.argv &&
