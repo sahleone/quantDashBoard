@@ -14,6 +14,7 @@
 import AccountHoldings from "../models/AccountHoldings.js";
 import AccountBalances from "../models/AccountBalances.js";
 import Metrics from "../models/Metrics.js";
+import PortfolioTimeseries from "../models/PortfolioTimeseries.js";
 import { config } from "../config/environment.js";
 
 /**
@@ -50,7 +51,8 @@ class MetricsController {
    */
   async getPortfolioValue(req, res) {
     try {
-      const { userId } = req.body;
+      // Get userId from authenticated user (set by auth middleware) or request body
+      const userId = req.user?.userId || req.body?.userId;
 
       // Validate required parameters
       if (!userId) {
@@ -61,26 +63,66 @@ class MetricsController {
           },
         });
       }
-      const { range = "YTD" } = req.query;
+      const { range = "YTD", accountId } = req.query;
 
       console.log(
-        `Getting portfolio value for user: ${userId}, range: ${range}`
+        `Getting portfolio value for user: ${userId}, range: ${range}, accountId: ${accountId || "all"}`
       );
 
       // Calculate date range
       const { startDate, endDate } = this.calculateDateRange(range);
 
-      // Get holdings data for the range
-      const holdings = await AccountHoldings.find({
+      // Build query - filter by accountId if provided
+      const query = {
         userId,
-        asOfDate: { $gte: startDate, $lte: endDate },
-      }).sort({ asOfDate: 1 });
+        date: { $gte: startDate, $lte: endDate },
+      };
+      if (accountId) {
+        query.accountId = accountId;
+      }
 
-      // Calculate daily portfolio values
-      const portfolioValues = this.calculatePortfolioTimeSeries(
-        holdings,
-        range
+      // Get portfolio timeseries data for the range
+      // Aggregate totalValue across selected accounts for the user by date
+      const timeseriesData = await PortfolioTimeseries.find(query).sort({ date: 1 });
+
+      console.log(
+        `Found ${timeseriesData.length} portfolio timeseries records for user ${userId} in range ${range}`
       );
+
+      // If no data, return empty response instead of error
+      if (!timeseriesData || timeseriesData.length === 0) {
+        console.log(
+          `No portfolio timeseries data found for user ${userId}. User may need to run metrics pipeline.`
+        );
+        return res.status(200).json({
+          benchmark: this.benchmarkSymbol,
+          range: range,
+          points: [],
+          summary: {
+            startValue: 0,
+            endValue: 0,
+            totalReturn: 0,
+            dataPoints: 0,
+          },
+        });
+      }
+
+      // Aggregate portfolio values by date (sum across all accounts for the user)
+      const portfolioByDate = new Map();
+      timeseriesData.forEach((record) => {
+        const dateKey = record.date.toISOString().split("T")[0];
+        const existing = portfolioByDate.get(dateKey) || { date: dateKey, equity: 0 };
+        existing.equity += record.totalValue || 0;
+        portfolioByDate.set(dateKey, existing);
+      });
+
+      // Convert to array and sort by date
+      const portfolioValues = Array.from(portfolioByDate.values())
+        .map((point) => ({
+          date: point.date,
+          equity: point.equity,
+        }))
+        .sort((a, b) => new Date(a.date) - new Date(b.date));
 
       res.status(200).json({
         benchmark: this.benchmarkSymbol,
@@ -124,25 +166,47 @@ class MetricsController {
    */
   async getPerformance(req, res) {
     try {
-      const { userId } = req.body;
-      const { range = "ITD" } = req.query;
+      // Get userId from authenticated user (set by auth middleware) or request body
+      const userId = req.user?.userId || req.body?.userId;
+
+      // Validate required parameters
+      if (!userId) {
+        return res.status(400).json({
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "Missing required parameter: userId is required",
+          },
+        });
+      }
+
+      const { range = "ITD", accountId } = req.query;
 
       console.log(
-        `Getting performance metrics for user: ${userId}, range: ${range}`
+        `Getting performance metrics for user: ${userId}, range: ${range}, accountId: ${accountId || "all"}`
       );
 
-      // Get current holdings
-      const currentHoldings = await AccountHoldings.find({
+      // Build query - filter by accountId if provided
+      const currentQuery = {
         userId,
         asOfDate: { $gte: new Date(new Date().setHours(0, 0, 0, 0)) },
-      });
+      };
+      if (accountId) {
+        currentQuery.accountId = accountId;
+      }
+
+      // Get current holdings
+      const currentHoldings = await AccountHoldings.find(currentQuery);
 
       // Get historical data for comparison
       const { startDate } = this.calculateDateRange(range);
-      const historicalHoldings = await AccountHoldings.find({
+      const historicalQuery = {
         userId,
         asOfDate: { $gte: startDate },
-      }).sort({ asOfDate: 1 });
+      };
+      if (accountId) {
+        historicalQuery.accountId = accountId;
+      }
+      const historicalHoldings = await AccountHoldings.find(historicalQuery).sort({ asOfDate: 1 });
 
       // Calculate performance metrics
       const performance = this.calculatePerformanceMetrics(
@@ -187,24 +251,40 @@ class MetricsController {
    */
   async getRiskMetrics(req, res) {
     try {
-      const { userId } = req.body;
-      const { range = "1Y" } = req.query;
+      // Get userId from authenticated user (set by auth middleware) or request body
+      const userId = req.user?.userId || req.body?.userId;
 
-      console.log(`Getting risk metrics for user: ${userId}, range: ${range}`);
+      // Validate required parameters
+      if (!userId) {
+        return res.status(400).json({
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "Missing required parameter: userId is required",
+          },
+        });
+      }
+
+      const { range = "1Y", accountId } = req.query;
+
+      console.log(`Getting risk metrics for user: ${userId}, range: ${range}, accountId: ${accountId || "all"}`);
 
       // Get historical holdings data
       const { startDate } = this.calculateDateRange(range);
-      const holdings = await AccountHoldings.find({
+      const query = {
         userId,
         asOfDate: { $gte: startDate },
-      }).sort({ asOfDate: 1 });
+      };
+      if (accountId) {
+        query.accountId = accountId;
+      }
+      const holdings = await AccountHoldings.find(query).sort({ asOfDate: 1 });
 
       // Calculate risk metrics
       const riskMetrics = this.calculateRiskMetrics(holdings, range);
 
       res.status(200).json({
         range: range,
-        risk: riskMetrics,
+        riskMetrics: riskMetrics,
         calculatedAt: new Date(),
       });
     } catch (error) {
@@ -238,7 +318,8 @@ class MetricsController {
    */
   async getFactorExposures(req, res) {
     try {
-      const { userId } = req.body;
+      // Get userId from authenticated user (set by auth middleware) or request body
+      const userId = req.user?.userId || req.body?.userId;
 
       // Validate required parameters
       if (!userId) {
@@ -249,18 +330,22 @@ class MetricsController {
           },
         });
       }
-      const { model = "FF3", range = "1Y" } = req.query;
+      const { model = "FF3", range = "1Y", accountId } = req.query;
 
       console.log(
-        `Getting factor exposures for user: ${userId}, model: ${model}, range: ${range}`
+        `Getting factor exposures for user: ${userId}, model: ${model}, range: ${range}, accountId: ${accountId || "all"}`
       );
 
       // Get historical holdings data
       const { startDate } = this.calculateDateRange(range);
-      const holdings = await AccountHoldings.find({
+      const query = {
         userId,
         asOfDate: { $gte: startDate },
-      }).sort({ asOfDate: 1 });
+      };
+      if (accountId) {
+        query.accountId = accountId;
+      }
+      const holdings = await AccountHoldings.find(query).sort({ asOfDate: 1 });
 
       // Calculate factor exposures
       const factorExposures = this.calculateFactorExposures(
@@ -307,17 +392,33 @@ class MetricsController {
    */
   async getKPIs(req, res) {
     try {
-      const { userId } = req.body;
-      const { range = "YTD" } = req.query;
+      // Get userId from authenticated user (set by auth middleware) or request body
+      const userId = req.user?.userId || req.body?.userId;
 
-      console.log(`Getting KPI metrics for user: ${userId}, range: ${range}`);
+      // Validate required parameters
+      if (!userId) {
+        return res.status(400).json({
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "Missing required parameter: userId is required",
+          },
+        });
+      }
+
+      const { range = "YTD", accountId } = req.query;
+
+      console.log(`Getting KPI metrics for user: ${userId}, range: ${range}, accountId: ${accountId || "all"}`);
 
       // Get historical holdings data
       const { startDate } = this.calculateDateRange(range);
-      const holdings = await AccountHoldings.find({
+      const query = {
         userId,
         asOfDate: { $gte: startDate },
-      }).sort({ asOfDate: 1 });
+      };
+      if (accountId) {
+        query.accountId = accountId;
+      }
+      const holdings = await AccountHoldings.find(query).sort({ asOfDate: 1 });
 
       // Calculate KPIs
       const kpis = this.calculateKPIs(holdings, range);
@@ -358,7 +459,8 @@ class MetricsController {
    */
   async getTimeSeries(req, res) {
     try {
-      const { userId } = req.body;
+      // Get userId from authenticated user (set by auth middleware) or request body
+      const userId = req.user?.userId || req.body?.userId;
 
       // Validate required parameters
       if (!userId) {
@@ -369,18 +471,22 @@ class MetricsController {
           },
         });
       }
-      const { series = "returns", range = "1Y" } = req.query;
+      const { series = "returns", range = "1Y", accountId } = req.query;
 
       console.log(
-        `Getting time series for user: ${userId}, series: ${series}, range: ${range}`
+        `Getting time series for user: ${userId}, series: ${series}, range: ${range}, accountId: ${accountId || "all"}`
       );
 
       // Get historical holdings data
       const { startDate } = this.calculateDateRange(range);
-      const holdings = await AccountHoldings.find({
+      const query = {
         userId,
         asOfDate: { $gte: startDate },
-      }).sort({ asOfDate: 1 });
+      };
+      if (accountId) {
+        query.accountId = accountId;
+      }
+      const holdings = await AccountHoldings.find(query).sort({ asOfDate: 1 });
 
       // Calculate time series
       const timeSeries = this.calculateTimeSeries(holdings, series, range);

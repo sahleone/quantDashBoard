@@ -134,7 +134,7 @@ export async function updateAccountActivitiesTable(opts = {}) {
           userId,
           userSecret,
           accountId,
-          10000,
+          1000, // SnapTrade max limit is 1000
           startDate,
           null,
           activityTypes

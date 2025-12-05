@@ -1,6 +1,6 @@
 /**
  * Portfolio Snapshot Metrics
- * 
+ *
  * Functions for calculating portfolio snapshot metrics:
  * - AUM (Assets Under Management)
  * - Asset Allocation
@@ -137,7 +137,11 @@ export function calculateInterestIncome(activities, startDate, endDate) {
  * @param {number} avgPortfolioValue - Average portfolio value over the period
  * @returns {number} - Income yield as a decimal (e.g., 0.05 = 5%)
  */
-export function calculateTotalIncomeYield(dividendIncome, interestIncome, avgPortfolioValue) {
+export function calculateTotalIncomeYield(
+  dividendIncome,
+  interestIncome,
+  avgPortfolioValue
+) {
   if (!avgPortfolioValue || avgPortfolioValue <= 0) {
     return 0;
   }
@@ -145,4 +149,3 @@ export function calculateTotalIncomeYield(dividendIncome, interestIncome, avgPor
   const totalIncome = dividendIncome + interestIncome;
   return totalIncome / avgPortfolioValue;
 }
-

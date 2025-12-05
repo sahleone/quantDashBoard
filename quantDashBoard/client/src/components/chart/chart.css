@@ -1,6 +1,6 @@
 .chart {
   width: 97.5%;
-  height: 40vh;
+  max-height: 40vh;
   display: flex;
   flex-direction: column;
   border: 2px solid var(--border);
@@ -8,5 +8,37 @@
   margin: 24px auto;
   padding: 16px;
   background: var(--bg-card);
+  color: var(--text-primary);
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.chart-container {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.chart-summary {
+  margin-bottom: 16px;
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.chart-summary > div {
+  display: flex;
+  gap: 8px;
+}
+
+.summary-label {
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.summary-value {
+  font-weight: 700;
   color: var(--text-primary);
 }

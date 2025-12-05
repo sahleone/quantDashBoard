@@ -13,13 +13,17 @@
 
 import express from "express";
 import metricsController from "../controllers/metricsController.js";
+import { requireAuth } from "../middleware/authmiddleware.js";
 
 const router = express.Router();
+
+// Apply authentication middleware to all metrics routes
+router.use(requireAuth);
 
 /**
  * Get Portfolio Value Over Time
  * GET /api/portfolio/value?range=YTD&benchmark=SPY
- * Body: { userId }
+ * Authentication: Required (userId extracted from authenticated user)
  * Response: { benchmark, points, summary }
  */
 router.get("/portfolio/value", (req, res) => {
@@ -29,7 +33,7 @@ router.get("/portfolio/value", (req, res) => {
 /**
  * Get Portfolio Performance Metrics
  * GET /api/metrics/performance?range=1Y&benchmark=SPY
- * Body: { userId }
+ * Authentication: Required (userId extracted from authenticated user)
  * Response: { returns, volatility, sharpe, beta, maxDrawdown, calmar }
  */
 router.get("/metrics/performance", (req, res) => {
@@ -39,7 +43,7 @@ router.get("/metrics/performance", (req, res) => {
 /**
  * Get Risk Metrics
  * GET /api/metrics/risk?range=1Y&confidence=0.95
- * Body: { userId }
+ * Authentication: Required (userId extracted from authenticated user)
  * Response: { var, cvar, volatility, beta, correlation }
  */
 router.get("/metrics/risk", (req, res) => {
@@ -49,7 +53,7 @@ router.get("/metrics/risk", (req, res) => {
 /**
  * Get Factor Exposures
  * GET /api/metrics/factors?model=FF3&range=1Y
- * Body: { userId }
+ * Authentication: Required (userId extracted from authenticated user)
  * Response: { model, exposures, statistics }
  */
 router.get("/metrics/factors", (req, res) => {
@@ -59,7 +63,7 @@ router.get("/metrics/factors", (req, res) => {
 /**
  * Get Key Performance Indicators
  * GET /api/metrics/kpis?range=1Y
- * Body: { userId }
+ * Authentication: Required (userId extracted from authenticated user)
  * Response: { kpis, summary, lastUpdated }
  */
 router.get("/metrics/kpis", (req, res) => {
@@ -69,7 +73,7 @@ router.get("/metrics/kpis", (req, res) => {
 /**
  * Get Time Series Metrics
  * GET /api/metrics/timeseries?series=returns,vol&range=1Y
- * Body: { userId }
+ * Authentication: Required (userId extracted from authenticated user)
  * Response: { series, data, summary }
  */
 router.get("/metrics/timeseries", (req, res) => {

@@ -1,6 +1,6 @@
 /**
  * Risk Metrics
- * 
+ *
  * Functions for calculating risk metrics:
  * - Volatility
  * - Beta
@@ -76,15 +76,12 @@ export function calculateBeta(portfolioReturns, benchmarkReturns) {
     return null;
   }
 
-  const pMean =
-    pairs.reduce((sum, p) => sum + p.portfolio, 0) / pairs.length;
-  const bMean =
-    pairs.reduce((sum, p) => sum + p.benchmark, 0) / pairs.length;
+  const pMean = pairs.reduce((sum, p) => sum + p.portfolio, 0) / pairs.length;
+  const bMean = pairs.reduce((sum, p) => sum + p.benchmark, 0) / pairs.length;
 
   const covariance =
     pairs.reduce(
-      (sum, p) =>
-        sum + (p.portfolio - pMean) * (p.benchmark - bMean),
+      (sum, p) => sum + (p.portfolio - pMean) * (p.benchmark - bMean),
       0
     ) / pairs.length;
 
@@ -170,9 +167,7 @@ export function calculateVaRParametric(returns, confidence = 0.95) {
     return 0;
   }
 
-  const validReturns = returns.filter(
-    (r) => r !== null && r !== undefined
-  );
+  const validReturns = returns.filter((r) => r !== null && r !== undefined);
 
   if (validReturns.length === 0) {
     return 0;
@@ -188,7 +183,7 @@ export function calculateVaRParametric(returns, confidence = 0.95) {
   const zScores = {
     0.95: 1.645,
     0.99: 2.326,
-    0.90: 1.282,
+    0.9: 1.282,
   };
   const z = zScores[confidence] || 1.645;
 
@@ -202,7 +197,12 @@ export function calculateVaRParametric(returns, confidence = 0.95) {
  * @returns {number} - CVaR value
  */
 export function calculateCVaR(returns, var95) {
-  if (!returns || returns.length === 0 || var95 === null || var95 === undefined) {
+  if (
+    !returns ||
+    returns.length === 0 ||
+    var95 === null ||
+    var95 === undefined
+  ) {
     return 0;
   }
 
@@ -222,4 +222,3 @@ export function calculateCVaR(returns, var95) {
 
   return tailLosses.reduce((sum, loss) => sum + loss, 0) / tailLosses.length;
 }
-

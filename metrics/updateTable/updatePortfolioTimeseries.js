@@ -18,7 +18,97 @@ import PriceHistory from "../../quantDashBoard/server/src/models/PriceHistory.js
 import AccountActivities from "../../quantDashBoard/server/src/models/AccountActivities.js";
 
 /**
+ * Check if a symbol is a crypto symbol that needs "-USD" suffix
+ */
+function isCryptoSymbol(symbol) {
+  const cleanSymbol = symbol.replace(/\s+/g, "").toUpperCase();
+  const CRYPTO_SYMBOLS = new Set([
+    "BTC",
+    "ETH",
+    "LTC",
+    "XRP",
+    "BCH",
+    "EOS",
+    "XLM",
+    "XTZ",
+    "ADA",
+    "DOT",
+    "LINK",
+    "UNI",
+    "AAVE",
+    "SOL",
+    "MATIC",
+    "AVAX",
+    "ATOM",
+    "ALGO",
+    "FIL",
+    "DOGE",
+    "SHIB",
+    "USDC",
+    "USDT",
+    "DAI",
+    "BAT",
+    "ZEC",
+    "XMR",
+    "DASH",
+    "ETC",
+    "TRX",
+    "VET",
+    "THETA",
+    "ICP",
+    "FTM",
+    "NEAR",
+    "APT",
+    "ARB",
+    "OP",
+    "SUI",
+    "SEI",
+    "TIA",
+    "INJ",
+    "MKR",
+    "COMP",
+    "SNX",
+    "CRV",
+    "YFI",
+    "SUSHI",
+    "1INCH",
+    "ENJ",
+    "MANA",
+    "SAND",
+    "AXS",
+    "GALA",
+    "CHZ",
+    "FLOW",
+    "GRT",
+    "ANKR",
+    "SKL",
+    "NU",
+    "CGLD",
+    "OXT",
+    "UMA",
+    "FORTH",
+    "ETH2",
+    "CBETH",
+    "BAND",
+    "NMR",
+  ]);
+  return CRYPTO_SYMBOLS.has(cleanSymbol) && !cleanSymbol.endsWith("-USD");
+}
+
+/**
+ * Normalize crypto symbol for price lookup (e.g., ETH -> ETH-USD)
+ */
+function normalizeCryptoSymbol(symbol) {
+  if (isCryptoSymbol(symbol)) {
+    return `${symbol.replace(/\s+/g, "").toUpperCase()}-USD`;
+  }
+  return symbol;
+}
+
+/**
  * Calculate stock value for a date from positions and prices
+ * Optimized to use aggregation pipeline for better performance
+ * Handles crypto symbols by checking both original and normalized versions
  */
 async function calculateStockValue(accountId, date, db) {
   const timeseriesCollection = db.collection("equitiesweighttimeseries");
@@ -39,30 +129,52 @@ async function calculateStockValue(accountId, date, db) {
   const positionDetails = [];
 
   const symbols = positions.map((p) => p.symbol);
-  const priceMap = new Map();
 
+  // Build list of symbols to query, including normalized crypto versions
+  const symbolsToQuery = new Set(symbols);
+  for (const symbol of symbols) {
+    if (isCryptoSymbol(symbol)) {
+      symbolsToQuery.add(normalizeCryptoSymbol(symbol));
+    }
+  }
+
+  // Use aggregation to get latest price per symbol more efficiently
+  // This is faster than fetching all prices and filtering in memory
   const prices = await priceHistoryCollection
-    .find({
-      symbol: { $in: symbols },
-      date: { $lte: date },
-    })
-    .sort({ symbol: 1, date: -1 })
+    .aggregate([
+      {
+        $match: {
+          symbol: { $in: Array.from(symbolsToQuery) },
+          date: { $lte: date },
+        },
+      },
+      {
+        $sort: { symbol: 1, date: -1 },
+      },
+      {
+        $group: {
+          _id: "$symbol",
+          close: { $first: "$close" },
+          date: { $first: "$date" },
+        },
+      },
+    ])
     .toArray();
 
   const pricesBySymbol = new Map();
   for (const price of prices) {
-    if (!pricesBySymbol.has(price.symbol)) {
-      pricesBySymbol.set(price.symbol, price);
-    }
+    pricesBySymbol.set(price._id, price.close || 0);
   }
 
   for (const position of positions) {
     const symbol = position.symbol;
     const units = position.units || 0;
 
-    let price = 0;
-    if (pricesBySymbol.has(symbol)) {
-      price = pricesBySymbol.get(symbol).close || 0;
+    // Try original symbol first, then normalized crypto version
+    let price = pricesBySymbol.get(symbol) || 0;
+    if (price === 0 && isCryptoSymbol(symbol)) {
+      const normalizedSymbol = normalizeCryptoSymbol(symbol);
+      price = pricesBySymbol.get(normalizedSymbol) || 0;
     }
 
     const value = units * price;
@@ -81,14 +193,21 @@ async function calculateStockValue(accountId, date, db) {
 
 /**
  * Build cash flow series from activities
- * Implements build_cash_and_flows() logic from activities.py
+ * Processes activities in chronological order, day by day, maintaining running cash balance
+ *
+ * Algorithm:
+ * 1. Sort activities by trade_date (oldest → newest), and within same date by time/_id
+ * 2. Build date range from earliest activity to end date
+ * 3. Initialize cash = 0
+ * 4. For each date, process activities in order, updating cash balance
  */
-async function buildCashAndFlows(accountId, db) {
+async function buildCashAndFlows(accountId, db, endDate = null) {
   const activitiesCollection = db.collection("snaptradeaccountactivities");
 
+  // Step 1: Sort activities by trade_date (oldest → newest), and within same date by _id (which contains timestamp)
   const activities = await activitiesCollection
     .find({ accountId: accountId })
-    .sort({ trade_date: 1, date: 1 })
+    .sort({ trade_date: 1, date: 1, _id: 1 })
     .toArray();
 
   if (activities.length === 0) {
@@ -100,16 +219,11 @@ async function buildCashAndFlows(accountId, db) {
     };
   }
 
-  const cashFlowByDate = new Map();
-  const extFlowByDate = new Map();
-
-  const EXT_TYPES = new Set(["CONTRIBUTION", "DEPOSIT", "WITHDRAWAL"]);
+  // Step 2: Build date range - find earliest trade date
+  let earliestDate = null;
+  const activitiesByDate = new Map();
 
   for (const activity of activities) {
-    const type = String(activity.type || "").toUpperCase();
-    const amount = parseFloat(activity.amount || 0);
-    if (isNaN(amount)) continue;
-
     const dateRaw = activity.trade_date || activity.date;
     if (!dateRaw) continue;
 
@@ -117,47 +231,140 @@ async function buildCashAndFlows(accountId, db) {
     date.setHours(0, 0, 0, 0);
     const dateKey = date.toISOString().split("T")[0];
 
-    cashFlowByDate.set(
-      dateKey,
-      (cashFlowByDate.get(dateKey) || 0) + amount
-    );
+    if (!earliestDate || dateKey < earliestDate) {
+      earliestDate = dateKey;
+    }
 
-    if (EXT_TYPES.has(type)) {
-      let extAmount = amount;
-      if (type === "WITHDRAWAL") {
-        extAmount = -Math.abs(amount);
-      } else if (type === "CONTRIBUTION" || type === "DEPOSIT") {
-        extAmount = Math.abs(amount);
+    if (!activitiesByDate.has(dateKey)) {
+      activitiesByDate.set(dateKey, []);
+    }
+    activitiesByDate.get(dateKey).push(activity);
+  }
+
+  if (!earliestDate) {
+    return {
+      cashValue: new Map(),
+      cashFlowDay: new Map(),
+      extFlowDay: new Map(),
+      extFlowCum: new Map(),
+    };
+  }
+
+  // Build list of all dates from earliest to end date
+  const startDate = new Date(earliestDate);
+  const finalEndDate = endDate || new Date();
+  finalEndDate.setHours(23, 59, 59, 999);
+
+  const allDates = [];
+  const current = new Date(startDate);
+  while (current <= finalEndDate) {
+    allDates.push(current.toISOString().split("T")[0]);
+    current.setDate(current.getDate() + 1);
+  }
+
+  // Step 3: Initialize portfolio state
+  let cash = 0;
+  const cashValue = new Map();
+  const cashFlowDay = new Map();
+  const extFlowDay = new Map();
+  const extFlowCum = new Map();
+
+  const EXT_TYPES = new Set([
+    "CONTRIBUTION",
+    "DEPOSIT",
+    "WITHDRAWAL",
+    "DIVIDEND",
+  ]);
+
+  let runningExtFlow = 0;
+  let minCashValue = 0;
+  let firstActivityDate = null;
+
+  // Step 4: For each date, apply activities in order
+  for (const dateKey of allDates) {
+    const dayStartCash = cash;
+    let dayCashFlow = 0;
+    let dayExtFlow = 0;
+
+    // Get activities for this date (already sorted by _id which contains timestamp)
+    const dayActivities = activitiesByDate.get(dateKey) || [];
+
+    // Process each activity for this day in order
+    for (const activity of dayActivities) {
+      const type = String(activity.type || "").toUpperCase();
+      const amount = parseFloat(activity.amount || 0);
+      if (isNaN(amount)) continue;
+
+      // Update cash balance (ALL activities affect cash)
+      cash += amount;
+      dayCashFlow += amount;
+
+      // Track external flows for returns calculation
+      if (EXT_TYPES.has(type)) {
+        let extAmount = amount;
+        if (type === "WITHDRAWAL") {
+          extAmount = -Math.abs(amount);
+        } else if (
+          type === "CONTRIBUTION" ||
+          type === "DEPOSIT" ||
+          type === "DIVIDEND"
+        ) {
+          extAmount = Math.abs(amount);
+        }
+
+        dayExtFlow += extAmount;
+        runningExtFlow += extAmount;
       }
 
-      extFlowByDate.set(dateKey, (extFlowByDate.get(dateKey) || 0) + extAmount);
+      // Track first activity for warning
+      if (firstActivityDate === null) {
+        firstActivityDate = dateKey;
+      }
+    }
+
+    // Record end-of-day values
+    // Always record cash value (forward-filled if no activities)
+    cashValue.set(dateKey, cash);
+    extFlowCum.set(dateKey, runningExtFlow);
+
+    // Only record cash flow and external flow if there were activities today
+    if (dayActivities.length > 0) {
+      if (dayCashFlow !== 0) {
+        cashFlowDay.set(dateKey, dayCashFlow);
+      }
+      if (dayExtFlow !== 0) {
+        extFlowDay.set(dateKey, dayExtFlow);
+      }
+    }
+
+    // Track minimum cash value
+    if (cash < minCashValue) {
+      minCashValue = cash;
     }
   }
 
-  const cashValue = new Map();
-  const extFlowCum = new Map();
+  // Warn if cash value goes negative (likely missing initial deposit or wrong activity signs)
+  if (minCashValue < 0 && firstActivityDate) {
+    const firstDayActivities = activitiesByDate.get(firstActivityDate) || [];
+    const firstActivity = firstDayActivities[0];
+    const firstDayCashFlow = cashFlowDay.get(firstActivityDate) || 0;
 
-  const allDates = new Set([
-    ...cashFlowByDate.keys(),
-    ...extFlowByDate.keys(),
-  ]);
-  const sortedDates = Array.from(allDates).sort();
-
-  let runningCash = 0;
-  let runningExtFlow = 0;
-
-  for (const dateKey of sortedDates) {
-    runningCash += cashFlowByDate.get(dateKey) || 0;
-    runningExtFlow += extFlowByDate.get(dateKey) || 0;
-
-    cashValue.set(dateKey, runningCash);
-    extFlowCum.set(dateKey, runningExtFlow);
+    console.warn(
+      `⚠️  Account ${accountId}: Cash value goes negative (min: ${minCashValue.toFixed(
+        2
+      )}). ` +
+        `First activity on ${firstActivityDate}: ${
+          firstActivity?.type || "unknown"
+        } ` +
+        `with amount ${firstDayCashFlow.toFixed(2)}. ` +
+        `This may indicate a missing initial deposit or incorrect activity signs.`
+    );
   }
 
   return {
     cashValue,
-    cashFlowDay: cashFlowByDate,
-    extFlowDay: extFlowByDate,
+    cashFlowDay,
+    extFlowDay,
     extFlowCum,
   };
 }
@@ -329,9 +536,10 @@ export async function updatePortfolioTimeseries(opts = {}) {
   if (mongoose.connection.readyState !== 1) {
     try {
       await mongoose.connect(databaseUrl, {
-        serverSelectionTimeoutMS: 30000,
-        connectTimeoutMS: 30000,
-        socketTimeoutMS: 45000,
+        serverSelectionTimeoutMS: 60000, // Increased to 60s
+        connectTimeoutMS: 60000, // Increased to 60s
+        socketTimeoutMS: 300000, // Increased to 5 minutes for long operations
+        maxPoolSize: 10, // Allow more concurrent connections
       });
       console.log("Connected to MongoDB");
     } catch (err) {
@@ -399,7 +607,11 @@ export async function updatePortfolioTimeseries(opts = {}) {
           continue;
         }
 
-        const cashFlows = await buildCashAndFlows(acctId, db);
+        const cashFlows = await buildCashAndFlows(
+          acctId,
+          db,
+          dateRange.endDate
+        );
 
         const dates = [];
         const current = new Date(dateRange.startDate);
@@ -412,6 +624,26 @@ export async function updatePortfolioTimeseries(opts = {}) {
 
         const portfolioData = new Map();
 
+        // Build forward-filled cash value map for all dates (like Python's ffill)
+        const cashValueByDate = new Map();
+        let lastCashValue = 0;
+        const allCashDates = Array.from(cashFlows.cashValue.keys()).sort();
+
+        // Create a map of all dates we need to process
+        const allDatesSet = new Set(
+          dates.map((d) => d.toISOString().split("T")[0])
+        );
+        allCashDates.forEach((cfDate) => allDatesSet.add(cfDate));
+        const allDatesSorted = Array.from(allDatesSet).sort();
+
+        // Forward-fill cash values (like Python's ffill)
+        for (const dateKey of allDatesSorted) {
+          if (cashFlows.cashValue.has(dateKey)) {
+            lastCashValue = cashFlows.cashValue.get(dateKey);
+          }
+          cashValueByDate.set(dateKey, lastCashValue);
+        }
+
         for (const date of dates) {
           const dateKey = date.toISOString().split("T")[0];
 
@@ -421,19 +653,34 @@ export async function updatePortfolioTimeseries(opts = {}) {
             db
           );
 
-          let cashValue = 0;
-          const cashFlowDates = Array.from(cashFlows.cashValue.keys()).sort();
-          for (const cfDate of cashFlowDates) {
-            if (cfDate <= dateKey) {
-              cashValue = cashFlows.cashValue.get(cfDate) || 0;
+          // Debug: Log if stock value is 0 but positions exist
+          if (stockValue === 0 && positions.length > 0) {
+            const symbolsWithoutPrices = positions
+              .filter((p) => p.price === 0)
+              .map((p) => p.symbol);
+            if (symbolsWithoutPrices.length > 0) {
+              console.warn(
+                `⚠️  Account ${acctId} on ${dateKey}: Stock value is 0 but ${positions.length} positions exist. ` +
+                  `Missing prices for: ${symbolsWithoutPrices
+                    .slice(0, 5)
+                    .join(", ")}${symbolsWithoutPrices.length > 5 ? "..." : ""}`
+              );
             }
           }
+
+          // Use forward-filled cash value (last known value up to this date)
+          const cashValue = cashValueByDate.get(dateKey) || 0;
 
           const totalValue = stockValue + cashValue;
 
           const depositWithdrawal = cashFlows.extFlowDay.get(dateKey) || 0;
+
+          // Forward-fill external flow cumulative (like Python's ffill)
           let externalFlowCumulative = 0;
-          for (const cfDate of cashFlowDates) {
+          const extFlowCumDates = Array.from(
+            cashFlows.extFlowCum.keys()
+          ).sort();
+          for (const cfDate of extFlowCumDates) {
             if (cfDate <= dateKey) {
               externalFlowCumulative = cashFlows.extFlowCum.get(cfDate) || 0;
             }
@@ -507,7 +754,10 @@ export async function updatePortfolioTimeseries(opts = {}) {
 
         summary.processed++;
       } catch (err) {
-        console.error(`Error processing account ${acctId}:`, err?.message || err);
+        console.error(
+          `Error processing account ${acctId}:`,
+          err?.message || err
+        );
         summary.errors.push({
           accountId: acctId,
           error: err?.message || String(err),
@@ -561,4 +811,3 @@ if (
     }
   })();
 }
-

@@ -1,3 +1,5 @@
+# KEEP 
+
 from collections import defaultdict
 from datetime import timedelta
 from pathlib import Path
@@ -10,12 +12,12 @@ import matplotlib.pyplot as plt
 
 
 # -------------------------------------------------------------
-# 1. STOCK/OPTION POSITIONS + MARKET VALUE (from BUY/SELL/REI/OPTIONS)
+# 1. STOCK POSITIONS + STOCK VALUE (from BUY/SELL/REI/OPTIONS)
 # -------------------------------------------------------------
 
 def signed_units(act: dict) -> float:
     """
-    Convert an activity record to a signed share/contract quantity.
+    Convert an activity record to a signed share quantity.
 
     SnapTrade conventions (typical):
     - BUY  : units > 0  (cash out)
@@ -25,8 +27,6 @@ def signed_units(act: dict) -> float:
     We normalise:
       - SELL -> negative units
       - BUY/REI -> positive units
-      - OPTIONASSIGNMENT / OPTIONEXERCISE / OPTIONEXPIRATION:
-          treated as closing long contracts (negative units)
       - other types -> 0 (no position change)
     """
     t = str(act.get("type", "")).upper()
@@ -36,45 +36,16 @@ def signed_units(act: dict) -> float:
         return -abs(u)
     elif t in ("BUY", "REI"):
         return abs(u)
-    elif t in ("OPTIONASSIGNMENT", "OPTIONEXERCISE", "OPTIONEXPIRATION"):
-        # Close out existing option contracts
-        return -abs(u)
     else:
         return 0.0
-
-
-def _extract_position_symbol(activity):
-    """
-    Decide what we use as the 'symbol' in positions_df.
-
-    - For options, use option_symbol['ticker']
-      e.g. 'SPY   250422C00515000'
-    - Otherwise, use the equity/ETF symbol (symbol or raw_symbol).
-    """
-    opt = activity.get("option_symbol")
-    if isinstance(opt, dict):
-        t = opt.get("ticker")
-        if t:
-            return t.strip()
-
-    sym = activity.get("symbol")
-    if isinstance(sym, dict):
-        t = sym.get("symbol") or sym.get("raw_symbol")
-        if t:
-            return t.strip()
-
-    return None
 
 
 def build_daily_positions_and_stock_value(activities):
     """
     From a list of SnapTrade activities, build:
 
-    - positions_df: shares/contracts per symbol per calendar day
-        index = Timestamp (tz-naive), columns = stocks/ETFs + option tickers
-    - stock_value:  total market value per day (Series)
-
-    Options will appear as separate columns using option_symbol['ticker'].
+    - positions_df: shares per symbol per calendar day (index = Timestamp, tz-naive)
+    - stock_value:  total stock/ETF/etc. market value per day (Series)
     """
     activities = list(activities)
     if not activities:
@@ -88,18 +59,18 @@ def build_daily_positions_and_stock_value(activities):
         "REI",
         "OPTIONASSIGNMENT",
         "OPTIONEXERCISE",
-        "OPTIONEXPIRATION",  # <-- added here
     }
 
-    # 1) Aggregate transactions per date & symbol/option-ticker
     for activity in activities:
         t = str(activity.get("type", "")).upper()
         if t not in POSITION_TYPES:
             continue
 
-        sym = _extract_position_symbol(activity)
-        if not sym:
+        sym_info = activity.get("symbol")
+        if not sym_info or "symbol" not in sym_info:
             continue
+
+        sym = sym_info["symbol"]
 
         trade_date_raw = activity.get("trade_date")
         if not trade_date_raw:
@@ -115,19 +86,14 @@ def build_daily_positions_and_stock_value(activities):
     if not transactions_by_date:
         raise ValueError("No BUY/SELL/REI/option transactions with symbols found in activities")
 
-    # 2) Collect all symbols (stocks + options) with same extraction logic
-    all_symbols = set()
-    for a in activities:
-        sym = _extract_position_symbol(a)
-        if sym:
-            all_symbols.add(sym)
+    all_symbols = {
+        a["symbol"]["symbol"]
+        for a in activities
+        if a.get("symbol") and isinstance(a["symbol"], dict) and a["symbol"].get("symbol")
+    }
 
-    # 3) Get splits data for symbols (options will just have no splits)
     splits_data = {}
     for sym in all_symbols:
-        # Heuristic: skip splits lookup for option tickers (usually contain spaces and dates)
-        if " " in sym:
-            continue
         try:
             s = yf.Ticker(sym).splits
         except Exception:
@@ -137,7 +103,6 @@ def build_daily_positions_and_stock_value(activities):
             s.index = s.index.date
             splits_data[sym] = s
 
-    # 4) Determine full calendar date range (transactions + split dates)
     all_dates = set(transactions_by_date.keys())
     for s in splits_data.values():
         all_dates.update(s.index)
@@ -149,21 +114,20 @@ def build_daily_positions_and_stock_value(activities):
     max_date = max(all_dates)
     date_range = pd.date_range(start=min_date, end=max_date, freq="D")
 
-    # 5) Roll forward positions, applying splits and trades
     cumulative_by_date = {}
     current_positions = {}
 
     for ts in date_range:
         current_date = ts.date()
 
-        # Apply splits effective on this date
+        # splits
         for sym, split_series in splits_data.items():
             if current_date in split_series.index:
                 factor = float(split_series.loc[current_date])
                 if sym in current_positions:
                     current_positions[sym] *= factor
 
-        # Apply transactions on this date
+        # transactions
         if current_date in transactions_by_date:
             for sym, delta_units in transactions_by_date[current_date].items():
                 new_units = current_positions.get(sym, 0.0) + delta_units
@@ -174,7 +138,6 @@ def build_daily_positions_and_stock_value(activities):
 
         cumulative_by_date[current_date] = current_positions.copy()
 
-    # 6) Build positions_df (includes option tickers as columns)
     positions_df = (
         pd.DataFrame.from_dict(cumulative_by_date, orient="index")
         .fillna(0.0)
@@ -187,46 +150,20 @@ def build_daily_positions_and_stock_value(activities):
     if not tickers:
         raise ValueError("No tickers found in positions_df")
 
-    # 7) Download daily prices per symbol and compute stock_value
-    price_start = positions_df.index.min()
-    price_end = positions_df.index.max() + pd.Timedelta(days=1)  # yfinance end is exclusive
+    min_date, max_date = positions_df.index.min(), positions_df.index.max()
 
-    price_df = pd.DataFrame(index=positions_df.index)
+    price_df = yf.download(
+        tickers=tickers,
+        start=min_date,
+        end=max_date + timedelta(days=1),
+        progress=False,
+        auto_adjust=False,
+    )["Close"]
 
-    for sym in tickers:
-        # For yfinance, collapse spaces (option tickers with spaces confuse it)
-        yf_sym = sym.replace(" ", "")
+    if isinstance(price_df, pd.Series):
+        price_df = price_df.to_frame(name=tickers[0])
 
-        try:
-            data = yf.download(
-                yf_sym,
-                start=price_start,
-                end=price_end,
-                auto_adjust=False,   # splits already handled on the units side
-                progress=False,
-            )
-        except Exception:
-            price_df[sym] = 0.0
-            continue
-
-        if data.empty:
-            price_df[sym] = 0.0
-            continue
-
-        close = data["Close"]
-
-        # If yfinance interpreted yf_sym as multiple tickers, Close will be a DataFrame
-        if isinstance(close, pd.DataFrame):
-            # If ambiguous (more than one column), treat as no data
-            if close.shape[1] != 1:
-                price_df[sym] = 0.0
-                continue
-            close = close.iloc[:, 0]
-
-        close = close.reindex(price_df.index).ffill()
-        price_df[sym] = close
-
-    price_df = price_df.fillna(0.0)
+    price_df = price_df.reindex(positions_df.index).ffill()
 
     valued_positions = positions_df * price_df
     stock_value = valued_positions.sum(axis=1)
@@ -317,10 +254,10 @@ def build_portfolio_timeseries(activities):
       - equity_index: normalized equity curve per segment (starts at 1 for each)
 
     Also returns:
-      - positions_df (shares/contracts per symbol per day)
+      - positions_df (shares per symbol per day)
       - external_flows_total (scalar: net deposits/withdrawals)
     """
-    # 1) Stocks & options
+    # 1) Stocks
     positions_df, stock_value = build_daily_positions_and_stock_value(activities)
 
     # 2) Cash + external flows
@@ -481,3 +418,4 @@ if __name__ == "__main__":
     plt.tight_layout()
 
     plt.show()
+

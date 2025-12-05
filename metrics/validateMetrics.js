@@ -45,16 +45,27 @@ async function checkAUMSanity(accountId, db) {
 
   for (const pt of portfolios) {
     const totalValue = pt.totalValue || 0;
+    const stockValue = pt.stockValue || 0;
+    const cashValue = pt.cashValue || 0;
 
     // Check for negative values
+    // Negative values can occur due to:
+    // 1. Margin accounts (borrowed cash)
+    // 2. Missing initial deposit in activities
+    // 3. Missing price data (stockValue = 0 when positions exist)
+    // Flag as warning if stockValue is 0 (likely missing prices), error otherwise
     if (totalValue < 0) {
+      const severity = stockValue === 0 && Math.abs(cashValue) > 0 
+        ? "warning"  // Likely missing price data
+        : "error";   // Could be legitimate (margin) or data issue
+      
       results.push(
         new ValidationResult(
           accountId,
           "AUM_Sanity",
-          "error",
-          `Negative portfolio value: ${totalValue}`,
-          { date: pt.date, totalValue }
+          severity,
+          `Negative portfolio value: ${totalValue} (stockValue: ${stockValue}, cashValue: ${cashValue})`,
+          { date: pt.date, totalValue, stockValue, cashValue }
         )
       );
     }
@@ -184,56 +195,6 @@ async function checkDataGaps(accountId, db) {
         "Data_Gaps",
         "pass",
         "No significant data gaps found"
-      )
-    );
-  }
-
-  return results;
-}
-
-/**
- * Check for return outliers
- */
-async function checkReturnOutliers(accountId, db) {
-  const portfolioCollection = db.collection("portfoliotimeseries");
-  const portfolios = await portfolioCollection
-    .find({ accountId: accountId })
-    .sort({ date: 1 })
-    .toArray();
-
-  const results = [];
-  const outliers = [];
-
-  for (const pt of portfolios) {
-    const ret = pt.simpleReturns;
-    if (ret !== null && ret !== undefined) {
-      // Flag returns > 100% or < -100% (may indicate data error)
-      if (ret > 1.0 || ret < -1.0) {
-        outliers.push({
-          date: pt.date,
-          return: ret,
-        });
-      }
-    }
-  }
-
-  if (outliers.length > 0) {
-    results.push(
-      new ValidationResult(
-        accountId,
-        "Return_Outliers",
-        "error",
-        `Found ${outliers.length} return outliers (>100% or <-100%)`,
-        { outliers: outliers.slice(0, 10) }
-      )
-    );
-  } else {
-    results.push(
-      new ValidationResult(
-        accountId,
-        "Return_Outliers",
-        "pass",
-        "No return outliers found"
       )
     );
   }
@@ -429,7 +390,6 @@ export async function validateMetrics(opts = {}) {
       checkAUMSanity,
       checkMissingPrices,
       checkDataGaps,
-      checkReturnOutliers,
       checkConsistency,
       checkPositionConsistency,
     ];

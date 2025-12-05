@@ -1,6 +1,6 @@
 /**
  * Risk-Adjusted Performance Metrics
- * 
+ *
  * Functions for calculating risk-adjusted performance metrics:
  * - Sharpe Ratio
  * - Sortino Ratio
@@ -23,9 +23,7 @@ export function calculateSharpeRatio(
     return null;
   }
 
-  const validReturns = returns.filter(
-    (r) => r !== null && r !== undefined
-  );
+  const validReturns = returns.filter((r) => r !== null && r !== undefined);
 
   if (validReturns.length === 0) {
     return null;
@@ -60,18 +58,12 @@ export function calculateSharpeRatio(
  * @param {boolean} annualized - Whether to annualize (default: true)
  * @returns {number|null} - Sortino ratio or null if no downside risk
  */
-export function calculateSortinoRatio(
-  returns,
-  mar = 0,
-  annualized = true
-) {
+export function calculateSortinoRatio(returns, mar = 0, annualized = true) {
   if (!returns || returns.length === 0) {
     return null;
   }
 
-  const validReturns = returns.filter(
-    (r) => r !== null && r !== undefined
-  );
+  const validReturns = returns.filter((r) => r !== null && r !== undefined);
 
   if (validReturns.length === 0) {
     return null;
@@ -94,8 +86,7 @@ export function calculateSortinoRatio(
     return null;
   }
 
-  const downsideVariance =
-    sumSquaredDownsideDeviations / validReturns.length;
+  const downsideVariance = sumSquaredDownsideDeviations / validReturns.length;
   const downsideDeviation = Math.sqrt(downsideVariance);
 
   if (downsideDeviation === 0) {
@@ -125,4 +116,3 @@ export function calculateReturnOverMaxDD(totalReturn, maxDrawdown) {
 
   return totalReturn / Math.abs(maxDrawdown);
 }
-

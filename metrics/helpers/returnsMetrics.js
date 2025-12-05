@@ -1,6 +1,6 @@
 /**
  * Returns and Performance Metrics
- * 
+ *
  * Functions for calculating returns and performance metrics:
  * - Point-to-point returns
  * - CAGR (Compound Annual Growth Rate)
@@ -122,4 +122,3 @@ export function calculateTWR(portfolioTimeseries, cashFlowDates) {
 
   return twr - 1;
 }
-

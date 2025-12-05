@@ -54,19 +54,27 @@ export async function runMetricsPipeline(opts = {}) {
     errors: [],
   };
 
-  // Step 1: Price Enrichment
+  // Step 1: Price Data and Corporate Actions
   if (steps.includes("price")) {
     try {
-      console.log("Step 1: Price Enrichment...");
+      console.log("Step 1: Price Data and Corporate Actions...");
       if (!dryRun) {
         results.price = await updatePriceData(commonOpts);
-        console.log(`  ✓ Price enrichment completed`);
+        console.log(`  ✓ Price data and corporate actions completed`);
       } else {
-        console.log("  [DRY RUN] Would run updatePriceData");
+        console.log(
+          "  [DRY RUN] Would run updatePriceData (fetches prices and corporate actions)"
+        );
       }
     } catch (error) {
-      console.error("  ✗ Price enrichment failed:", error?.message || error);
-      results.errors.push({ step: "price", error: error?.message || String(error) });
+      console.error(
+        "  ✗ Price data and corporate actions failed:",
+        error?.message || error
+      );
+      results.errors.push({
+        step: "price",
+        error: error?.message || String(error),
+      });
     }
   }
 
@@ -132,7 +140,11 @@ export async function runMetricsPipeline(opts = {}) {
   }
 
   console.log("\n=== Pipeline Summary ===");
-  console.log(`Completed steps: ${steps.filter((s) => results[s] !== null).length}/${steps.length}`);
+  console.log(
+    `Completed steps: ${steps.filter((s) => results[s] !== null).length}/${
+      steps.length
+    }`
+  );
   console.log(`Errors: ${results.errors.length}`);
 
   return results;
@@ -173,4 +185,3 @@ if (
     }
   })();
 }
-

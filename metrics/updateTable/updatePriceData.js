@@ -1,8 +1,13 @@
 /**
  * updatePriceData.js
  *
- * Fetches and stores daily price data for all symbols in EquitiesWeightTimeseries.
+ * Fetches and stores daily price data and corporate actions (stock splits, dividends)
+ * for all unique symbols in EquitiesWeightTimeseries.
  * Uses Yahoo Finance API via yahooFinanceClient.js.
+ *
+ * Processes by symbol (across all users), not by user - each symbol is fetched once
+ * even if multiple users hold it. This is more efficient because price data and
+ * corporate actions are symbol-based, not user-based.
  *
  * Options (opts):
  *  - databaseUrl: MongoDB connection string (falls back to env DATABASE_URL)
@@ -14,10 +19,13 @@
 
 import mongoose from "mongoose";
 import PriceHistory from "../../quantDashBoard/server/src/models/PriceHistory.js";
+import CorporateActions from "../../quantDashBoard/server/src/models/CorporateActions.js";
 import EquitiesWeightTimeseries from "../../quantDashBoard/server/src/models/EquitiesWeightTimeseries.js";
 import {
   fetchHistoricalPrices,
   fetchMultipleSymbols,
+  fetchStockSplits,
+  fetchDividends,
 } from "../../quantDashBoard/server/src/utils/yahooFinanceClient.js";
 
 /**
@@ -119,7 +127,118 @@ async function getMissingDates(symbol, requiredDateRange, opts = {}) {
 }
 
 /**
+ * Process corporate actions for a single symbol: fetch and store stock splits and dividends
+ *
+ * IMPORTANT: Fetches ALL historical corporate actions, not limited by current positions date range.
+ * This ensures that if older historical positions are added later, the corporate actions
+ * will already be in the database for accurate split-adjusted valuations.
+ */
+async function processCorporateActions(symbol, opts = {}) {
+  try {
+    // Skip option tickers that contain spaces (they don't have corporate actions)
+    if (symbol.includes(" ") && symbol.trim() !== symbol.replace(/\s+/g, "")) {
+      return { symbol, status: "skipped", reason: "option_ticker" };
+    }
+
+    const db = mongoose.connection.db;
+    const corporateActionsCollection = db.collection("corporateactions");
+
+    // Check if corporate actions already exist in database
+    const existing = await corporateActionsCollection.findOne({ symbol });
+
+    // If exists and not forcing refresh, skip (corporate actions are historical and don't change)
+    if (existing && !opts.forceRefresh) {
+      return {
+        symbol,
+        status: "skipped",
+        reason: "corporate_actions_exist",
+        splitsCount: existing.splits?.length || 0,
+        dividendsCount: existing.dividends?.length || 0,
+      };
+    }
+
+    // Fetch ALL historical stock splits (no date range limit)
+    // Use a very early date to ensure we get all historical splits
+    const allTimeStartDate = new Date("1970-01-01");
+    const allTimeEndDate = new Date();
+
+    const splits = await fetchStockSplits(
+      symbol,
+      allTimeStartDate,
+      allTimeEndDate
+    );
+
+    // Fetch ALL historical dividends (no date range limit)
+    const dividends = await fetchDividends(
+      symbol,
+      allTimeStartDate,
+      allTimeEndDate
+    );
+
+    // Store ALL corporate actions in database (not filtered by date range)
+    await corporateActionsCollection.updateOne(
+      { symbol },
+      {
+        $set: {
+          symbol: symbol,
+          splits: splits,
+          dividends: dividends,
+          lastUpdated: new Date(),
+          source: "yahoo_finance",
+        },
+      },
+      { upsert: true }
+    );
+
+    return {
+      symbol,
+      status: "success",
+      splitsCount: splits.length,
+      dividendsCount: dividends.length,
+    };
+  } catch (error) {
+    return {
+      symbol,
+      status: "error",
+      reason: error.message || String(error),
+    };
+  }
+}
+
+/**
+ * Check if a symbol is an option ticker (contains spaces)
+ * Options are treated like stocks but use price 0 when API access is not available
+ */
+function isOptionSymbol(symbol) {
+  return symbol.includes(" ") && symbol.trim() !== symbol.replace(/\s+/g, "");
+}
+
+/**
+ * Check if a symbol is a crypto symbol that needs "-USD" suffix
+ * Uses the same CRYPTO_SYMBOLS set as yahooFinanceClient
+ */
+function isCryptoSymbol(symbol) {
+  // Remove spaces first (for option tickers that might have spaces)
+  const cleanSymbol = symbol.replace(/\s+/g, "").toUpperCase();
+  
+  // Common cryptocurrency symbols that need "-USD" suffix for Yahoo Finance
+  const CRYPTO_SYMBOLS = new Set([
+    "BTC", "ETH", "LTC", "XRP", "BCH", "EOS", "XLM", "XTZ", "ADA", "DOT",
+    "LINK", "UNI", "AAVE", "SOL", "MATIC", "AVAX", "ATOM", "ALGO", "FIL",
+    "DOGE", "SHIB", "USDC", "USDT", "DAI", "BAT", "ZEC", "XMR", "DASH",
+    "ETC", "TRX", "VET", "THETA", "ICP", "FTM", "NEAR", "APT", "ARB",
+    "OP", "SUI", "SEI", "TIA", "INJ", "MKR", "COMP", "SNX", "CRV", "YFI",
+    "SUSHI", "1INCH", "ENJ", "MANA", "SAND", "AXS", "GALA", "CHZ", "FLOW",
+    "GRT", "ANKR", "SKL", "NU", "CGLD", "OXT", "UMA", "FORTH", "ETH2",
+    "CBETH", "BAND", "NMR"
+  ]);
+  
+  return CRYPTO_SYMBOLS.has(cleanSymbol) && !cleanSymbol.endsWith("-USD");
+}
+
+/**
  * Process a single symbol: fetch missing prices and store them
+ * For options, uses price 0 instead of fetching from API
  */
 async function processSymbol(symbol, opts = {}) {
   try {
@@ -134,31 +253,49 @@ async function processSymbol(symbol, opts = {}) {
       return { symbol, status: "skipped", reason: "no_missing_dates" };
     }
 
-    const prices = await fetchHistoricalPrices(
-      symbol,
-      dateRange.startDate,
-      dateRange.endDate
-    );
+    let prices = [];
 
-    if (prices.length === 0) {
-      return { symbol, status: "error", reason: "no_price_data" };
-    }
-
-    let pricesToStore = prices;
-    if (!opts.forceRefresh && missingDates.length > 0) {
-      const missingDateKeys = new Set(
-        missingDates.map((d) => d.toISOString().split("T")[0])
+    // Check if this is an option symbol - if so, use price 0 instead of fetching
+    if (isOptionSymbol(symbol)) {
+      // Generate price entries with price 0 for all missing dates
+      prices = missingDates.map((date) => ({
+        date: new Date(date),
+        close: 0,
+        open: 0,
+        high: 0,
+        low: 0,
+        volume: 0,
+      }));
+    } else {
+      // Regular stock or crypto - fetch prices from API
+      // Note: fetchHistoricalPrices will automatically normalize crypto symbols (e.g., ETH -> ETH-USD)
+      const isCrypto = isCryptoSymbol(symbol);
+      prices = await fetchHistoricalPrices(
+        symbol,
+        dateRange.startDate,
+        dateRange.endDate
       );
-      pricesToStore = prices.filter((p) => {
-        const dateKey = p.date.toISOString().split("T")[0];
-        return missingDateKeys.has(dateKey);
-      });
+
+      if (prices.length === 0) {
+        return { symbol, status: "error", reason: "no_price_data" };
+      }
+
+      // Filter to only missing dates if not forcing refresh
+      if (!opts.forceRefresh && missingDates.length > 0) {
+        const missingDateKeys = new Set(
+          missingDates.map((d) => d.toISOString().split("T")[0])
+        );
+        prices = prices.filter((p) => {
+          const dateKey = p.date.toISOString().split("T")[0];
+          return missingDateKeys.has(dateKey);
+        });
+      }
     }
 
     const db = mongoose.connection.db;
     const priceHistoryCollection = db.collection("pricehistories");
 
-    const ops = pricesToStore.map((price) => ({
+    const ops = prices.map((price) => ({
       updateOne: {
         filter: {
           symbol: symbol,
@@ -188,7 +325,9 @@ async function processSymbol(symbol, opts = {}) {
       symbol,
       status: "success",
       pricesFetched: prices.length,
-      pricesStored: pricesToStore.length,
+      pricesStored: prices.length,
+      isOption: isOptionSymbol(symbol),
+      isCrypto: isCryptoSymbol(symbol),
     };
   } catch (error) {
     return {
@@ -236,6 +375,10 @@ export async function updatePriceData(opts = {}) {
     processed: 0,
     skipped: 0,
     newPrices: 0,
+    corporateActionsProcessed: 0,
+    corporateActionsSkipped: 0,
+    totalSplits: 0,
+    totalDividends: 0,
     errors: [],
   };
 
@@ -253,37 +396,145 @@ export async function updatePriceData(opts = {}) {
       `Processing ${symbols.length} symbol(s) (fullSync: ${fullSync}, forceRefresh: ${forceRefresh})`
     );
 
-    for (let i = 0; i < symbols.length; i++) {
-      const symbol = symbols[i];
-      console.log(`[${i + 1}/${symbols.length}] Processing ${symbol}...`);
+    // Process symbols in parallel batches for 5-10x speedup
+    // Yahoo Finance rate limit: 2000/hour = ~33/min = ~1 every 2 seconds
+    // With batch size 15, each batch takes ~2 seconds, so we stay within limits
+    const BATCH_SIZE = opts.batchSize || 15;
+    const startTime = Date.now();
 
-      const result = await processSymbol(symbol, {
-        userId,
-        accountId,
-        fullSync,
-        forceRefresh,
-      });
+    console.log(`Using parallel batch processing (batch size: ${BATCH_SIZE})`);
 
-      if (result.status === "success") {
-        summary.processed++;
-        summary.newPrices += result.pricesStored || 0;
-        console.log(
-          `  ✓ ${symbol}: stored ${result.pricesStored} prices (fetched ${result.pricesFetched})`
-        );
-      } else if (result.status === "skipped") {
-        summary.skipped++;
-        console.log(`  - ${symbol}: ${result.reason}`);
-      } else {
-        summary.errors.push(result);
-        console.error(`  ✗ ${symbol}: ${result.reason}`);
+    for (let i = 0; i < symbols.length; i += BATCH_SIZE) {
+      const batch = symbols.slice(i, i + BATCH_SIZE);
+      const batchNum = Math.floor(i / BATCH_SIZE) + 1;
+      const totalBatches = Math.ceil(symbols.length / BATCH_SIZE);
+
+      console.log(
+        `\n[Batch ${batchNum}/${totalBatches}] Processing ${batch.length} symbols in parallel...`
+      );
+
+      const batchStartTime = Date.now();
+
+      // Process batch in parallel
+      const batchResults = await Promise.all(
+        batch.map(async (symbol) => {
+          try {
+            // Process price data
+            const priceResult = await processSymbol(symbol, {
+              userId,
+              accountId,
+              fullSync,
+              forceRefresh,
+            });
+
+            // Process corporate actions
+            const corporateActionsResult = await processCorporateActions(
+              symbol,
+              {
+                forceRefresh,
+              }
+            );
+
+            return { symbol, priceResult, corporateActionsResult };
+          } catch (error) {
+            return {
+              symbol,
+              priceResult: {
+                symbol,
+                status: "error",
+                reason: error.message || String(error),
+              },
+              corporateActionsResult: {
+                symbol,
+                status: "error",
+                reason: error.message || String(error),
+              },
+            };
+          }
+        })
+      );
+
+      const batchDuration = ((Date.now() - batchStartTime) / 1000).toFixed(1);
+      console.log(
+        `  Batch ${batchNum} completed in ${batchDuration}s (${batch.length} symbols)`
+      );
+
+      // Process results and update summary
+      for (const {
+        symbol,
+        priceResult,
+        corporateActionsResult,
+      } of batchResults) {
+         // Update summary for prices
+         if (priceResult.status === "success") {
+           summary.processed++;
+           summary.newPrices += priceResult.pricesStored || 0;
+           const optionNote = priceResult.isOption ? " (option, price=0)" : "";
+           const cryptoNote = priceResult.isCrypto ? " (crypto, normalized to -USD)" : "";
+           console.log(
+             `  ✓ ${symbol}: stored ${priceResult.pricesStored} prices${optionNote}${cryptoNote}`
+           );
+        } else if (priceResult.status === "skipped") {
+          summary.skipped++;
+          console.log(`  - ${symbol} (prices): ${priceResult.reason}`);
+        } else {
+          summary.errors.push({ ...priceResult, type: "price" });
+          console.error(`  ✗ ${symbol} (prices): ${priceResult.reason}`);
+        }
+
+        // Update summary for corporate actions
+        if (corporateActionsResult.status === "success") {
+          summary.corporateActionsProcessed++;
+          summary.totalSplits += corporateActionsResult.splitsCount || 0;
+          summary.totalDividends += corporateActionsResult.dividendsCount || 0;
+          console.log(
+            `  ✓ ${symbol}: stored ${
+              corporateActionsResult.splitsCount || 0
+            } splits, ${corporateActionsResult.dividendsCount || 0} dividends`
+          );
+        } else if (corporateActionsResult.status === "skipped") {
+          summary.corporateActionsSkipped++;
+          if (corporateActionsResult.reason !== "option_ticker") {
+            console.log(
+              `  - ${symbol} (corporate actions): ${corporateActionsResult.reason}`
+            );
+          }
+        } else {
+          summary.errors.push({
+            ...corporateActionsResult,
+            type: "corporate_actions",
+          });
+          console.error(
+            `  ✗ ${symbol} (corporate actions): ${corporateActionsResult.reason}`
+          );
+        }
+      }
+
+      // Log progress
+      const processed = Math.min(i + BATCH_SIZE, symbols.length);
+      const progress = ((processed / symbols.length) * 100).toFixed(1);
+      const elapsed = ((Date.now() - startTime) / 1000 / 60).toFixed(1);
+      console.log(
+        `  Overall progress: ${processed}/${symbols.length} (${progress}%) - Elapsed: ${elapsed} min`
+      );
+
+      // Small delay between batches to respect rate limits
+      if (i + BATCH_SIZE < symbols.length) {
+        await new Promise((resolve) => setTimeout(resolve, 500)); // 500ms delay
       }
     }
 
     console.log("\n=== Summary ===");
     console.log(`Total symbols: ${summary.totalSymbols}`);
-    console.log(`Processed: ${summary.processed}`);
-    console.log(`Skipped: ${summary.skipped}`);
+    console.log(
+      `Prices - Processed: ${summary.processed}, Skipped: ${summary.skipped}`
+    );
     console.log(`New prices stored: ${summary.newPrices}`);
+    console.log(
+      `Corporate Actions - Processed: ${summary.corporateActionsProcessed}, Skipped: ${summary.corporateActionsSkipped}`
+    );
+    console.log(`Total splits stored: ${summary.totalSplits}`);
+    console.log(`Total dividends stored: ${summary.totalDividends}`);
     console.log(`Errors: ${summary.errors.length}`);
   } catch (error) {
     console.error("Error in updatePriceData:", error);
@@ -325,4 +576,3 @@ if (
     }
   })();
 }
-

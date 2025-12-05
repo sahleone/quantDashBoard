@@ -13,11 +13,10 @@ export async function getLastActivityDate(ActivitiesModel, accountId) {
   const db = mongoose.connection.db;
   const activitiesCollection = db.collection("snaptradeaccountactivities");
 
-  const activity = await activitiesCollection
-    .findOne(
-      { accountId },
-      { sort: { trade_date: -1, date: -1 } }
-    );
+  const activity = await activitiesCollection.findOne(
+    { accountId },
+    { sort: { trade_date: -1, date: -1 } }
+  );
 
   if (!activity) return null;
 

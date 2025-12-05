@@ -6,6 +6,7 @@ import {
   RouterProvider,
 } from "react-router-dom";
 import axios from "axios";
+import "./App.css";
 
 // context
 import UserContext from "./context/UserContext";

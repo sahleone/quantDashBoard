@@ -1,6 +1,6 @@
 /**
  * Diversification Metrics
- * 
+ *
  * Functions for calculating diversification and correlation metrics:
  * - Correlation
  * - Cointegration (advanced, optional)
@@ -40,15 +40,12 @@ export function calculateCorrelation(portfolioReturns, benchmarkReturns) {
     return null;
   }
 
-  const pMean =
-    pairs.reduce((sum, p) => sum + p.portfolio, 0) / pairs.length;
-  const bMean =
-    pairs.reduce((sum, p) => sum + p.benchmark, 0) / pairs.length;
+  const pMean = pairs.reduce((sum, p) => sum + p.portfolio, 0) / pairs.length;
+  const bMean = pairs.reduce((sum, p) => sum + p.benchmark, 0) / pairs.length;
 
   const covariance =
     pairs.reduce(
-      (sum, p) =>
-        sum + (p.portfolio - pMean) * (p.benchmark - bMean),
+      (sum, p) => sum + (p.portfolio - pMean) * (p.benchmark - bMean),
       0
     ) / pairs.length;
 
@@ -96,12 +93,7 @@ export function calculateCointegration(priceSeries1, priceSeries2) {
     const prev2 = priceSeries2[i - 1];
     const curr2 = priceSeries2[i];
 
-    if (
-      prev1 > 0 &&
-      curr1 > 0 &&
-      prev2 > 0 &&
-      curr2 > 0
-    ) {
+    if (prev1 > 0 && curr1 > 0 && prev2 > 0 && curr2 > 0) {
       returns1.push((curr1 - prev1) / prev1);
       returns2.push((curr2 - prev2) / prev2);
     }
@@ -109,4 +101,3 @@ export function calculateCointegration(priceSeries1, priceSeries2) {
 
   return calculateCorrelation(returns1, returns2);
 }
-
