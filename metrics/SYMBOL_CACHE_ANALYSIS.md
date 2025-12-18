@@ -422,3 +422,5 @@ async function processSymbol(symbol, opts = {}) {
 | **Total**               | **6-12 minutes** | -        |
 
 **Combined with parallel processing:** 46 min → **3-5 minutes** (9-15x faster)
+
+

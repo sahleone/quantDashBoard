@@ -20,6 +20,8 @@ import Home from "./pages/home/Home.jsx";
 import Settings from "./pages/settings/Settings";
 import Portfolio from "./pages/portfolio/Portfolio";
 import StockInfo from "./pages/stockInfo/StockInfo";
+import AssetAllocation from "./pages/assetAllocation/AssetAllocation";
+import Dividends from "./pages/dividends/Dividends";
 import NotFound from "./pages/notFound/NotFound.jsx";
 
 import Logout from "./components/Logout";
@@ -35,6 +37,8 @@ const router = createBrowserRouter(
       <Route element={<ProtectedRoutes />}>
         <Route path="portfolio" element={<Portfolio />} />
         <Route path="dashboard" element={<Dashboard />} />
+        <Route path="asset-allocation" element={<AssetAllocation />} />
+        <Route path="dividends" element={<Dividends />} />
         <Route path="settings" element={<Settings />} />
         <Route path="stock-info" element={<StockInfo />} />
         <Route path="logout" element={<Logout />} />

@@ -54,6 +54,16 @@ const metricsSchema = new mongoose.Schema(
       interestIncome: { type: Number, default: null },
       totalIncomeYield: { type: Number, default: null },
       nav: { type: mongoose.Schema.Types.Decimal128, default: null },
+      // Additional performance metrics
+      calmar: { type: Number, default: null },
+      alpha: { type: Number, default: null },
+      // Additional risk metrics
+      omega: { type: Number, default: null },
+      downsideDeviation: { type: Number, default: null },
+      sharpeConfidenceInterval: {
+        lowerBound: { type: Number, default: null },
+        upperBound: { type: Number, default: null },
+      },
     },
     // Old schema fields (for backward compatibility)
     asOfDate: {

@@ -23,7 +23,14 @@ archive/test/
 │   ├── buildDailyCashSeries.js      # Build daily cash balance series from activities
 │   ├── buildDailyUnitsSeries.js     # Build daily units held per security series from activities
 │   ├── buildDailySecurityValuesSeries.js # Build daily securities values from units and prices
-│   └── buildDailyPortfolioSeries.js # Build daily portfolio value series (cash + securities)
+│   ├── buildDailyPortfolioSeries.js # Build daily portfolio value series (cash + securities)
+│   └── metrics/                     # Portfolio metrics calculation functions
+│       ├── snapshotMetrics.js       # AUM, asset allocation, diversification
+│       ├── incomeMetrics.js         # Dividends, interest, income yields
+│       ├── returnsMetrics.js        # Point-to-point returns, CAGR, TWR
+│       ├── riskMetrics.js           # Volatility, beta, drawdown, VaR/CVaR
+│       ├── riskAdjustedMetrics.js   # Sharpe, Sortino, Return/MaxDD
+│       └── correlationMetrics.js    # Correlation, cointegration
 ├── utils/                           # Shared utilities
 │   ├── dbConnection.js              # MongoDB connection management
 │   ├── dateHelpers.js               # Date formatting utilities
@@ -51,6 +58,19 @@ Beyond the core pipeline, there are additional functions to build more complex t
 
 - **Build Securities Values Series** - Computes daily market values of securities from units series and price data
 - **Build Portfolio Series** - Combines cash and securities values into a complete portfolio value time series with daily returns
+
+### Metrics Calculation Functions
+
+The `functions/metrics/` directory contains functions for calculating portfolio metrics:
+
+- **Snapshot Metrics** - AUM, asset allocation, HHI, diversification score (uses SnapTrade API)
+- **Income Metrics** - Dividend income, interest income, income yields (uses SnapTrade activities)
+- **Returns Metrics** - Point-to-point returns, CAGR, Time-Weighted Return (uses portfolio timeseries)
+- **Risk Metrics** - Volatility, beta, maximum drawdown, VaR, CVaR (uses portfolio returns)
+- **Risk-Adjusted Metrics** - Sharpe ratio, Sortino ratio, Return/MaxDD (uses portfolio returns)
+- **Correlation Metrics** - Correlation, cointegration (uses return/price series)
+
+See [METRICS_CALCULATION.md](./METRICS_CALCULATION.md) for detailed documentation.
 
 ## Usage
 
@@ -539,6 +559,200 @@ const results = await buildDailyCashSeriesForAccounts({
   baseCurrencyByAccount: { "account-1": "USD", "account-2": "CAD" },
 });
 ```
+
+## Metrics Functions
+
+### `calculateAUMFromSnapTrade(opts)`
+
+Calculates Assets Under Management from SnapTrade API by fetching balances and positions.
+
+**Parameters:**
+
+- `opts.userId` (required) - User ID
+- `opts.userSecret` (required) - User secret
+- `opts.accountId` (required) - Account ID
+- `opts.baseCurrency` (optional) - Base currency (default: "USD")
+- `opts.databaseUrl` (optional) - MongoDB connection string
+
+**Returns:** `Promise<Object>` - Object with `{ aum, cash, securitiesValue, breakdown }`
+
+**Example:**
+
+```javascript
+import { calculateAUMFromSnapTrade } from "./functions/metrics/snapshotMetrics.js";
+
+const aum = await calculateAUMFromSnapTrade({
+  userId: "user123",
+  userSecret: "secret456",
+  accountId: "account789",
+});
+console.log(`AUM: $${aum.aum}`);
+```
+
+---
+
+### `calculateAssetAllocation(opts)`
+
+Calculates asset allocation weights, HHI, and diversification score from SnapTrade positions.
+
+**Parameters:**
+
+- `opts.userId` (required) - User ID
+- `opts.userSecret` (required) - User secret
+- `opts.accountId` (required) - Account ID
+- `opts.groupBy` (optional) - Grouping: 'symbol' | 'assetClass' | 'sector' (default: 'symbol')
+- `opts.includeCash` (optional) - Include cash in allocation (default: true)
+- `opts.databaseUrl` (optional) - MongoDB connection string
+
+**Returns:** `Promise<Object>` - Object with `{ allocation, hhi, diversificationScore, totalValue }`
+
+**Example:**
+
+```javascript
+import { calculateAssetAllocation } from "./functions/metrics/snapshotMetrics.js";
+
+const allocation = await calculateAssetAllocation({
+  userId: "user123",
+  userSecret: "secret456",
+  accountId: "account789",
+  groupBy: "symbol",
+});
+console.log(`HHI: ${allocation.hhi}, Diversification: ${allocation.diversificationScore}`);
+```
+
+---
+
+### `calculateIncomeMetrics(opts)`
+
+Calculates dividend and interest income, grouped by time period.
+
+**Parameters:**
+
+- `opts.userId` (required) - User ID
+- `opts.userSecret` (required) - User secret
+- `opts.accountId` (required) - Account ID
+- `opts.startDate` (required) - Start date for filtering
+- `opts.endDate` (required) - End date for filtering
+- `opts.groupBy` (optional) - Grouping: 'month' | 'quarter' | 'year' (default: 'month')
+- `opts.databaseUrl` (optional) - MongoDB connection string
+
+**Returns:** `Promise<Object>` - Object with `{ byPeriod, totals }`
+
+**Example:**
+
+```javascript
+import { calculateIncomeMetrics } from "./functions/metrics/incomeMetrics.js";
+
+const income = await calculateIncomeMetrics({
+  userId: "user123",
+  userSecret: "secret456",
+  accountId: "account789",
+  startDate: "2024-01-01",
+  endDate: "2024-12-31",
+  groupBy: "month",
+});
+console.log(`Total income: $${income.totals.total}`);
+```
+
+---
+
+### `calculatePointToPointReturn(opts)`
+
+Calculates point-to-point return from portfolio series for a given period.
+
+**Parameters:**
+
+- `opts.portfolioSeries` (required) - Array of portfolio series objects
+- `opts.period` (optional) - Period: "1M" | "3M" | "YTD" | "1Y" | "ITD" (default: "ITD")
+- `opts.asOfDate` (optional) - End date (default: today)
+
+**Returns:** `Object` - Object with `{ return, startValue, endValue, startDate, endDate }`
+
+**Example:**
+
+```javascript
+import { calculatePointToPointReturn } from "./functions/metrics/returnsMetrics.js";
+
+const returnData = calculatePointToPointReturn({
+  portfolioSeries,
+  period: "1Y",
+});
+console.log(`1Y Return: ${(returnData.return * 100).toFixed(2)}%`);
+```
+
+---
+
+### `calculateSharpeRatio(opts)`
+
+Calculates Sharpe ratio from daily returns.
+
+**Parameters:**
+
+- `opts.returns` (required) - Array of daily returns
+- `opts.riskFreeRate` (optional) - Annual risk-free rate (default: 0)
+- `opts.annualized` (optional) - Whether to annualize (default: true)
+
+**Returns:** `Object|null` - Object with `{ sharpe, meanReturn, stdDev, annualizedReturn, annualizedVol }` or null
+
+**Example:**
+
+```javascript
+import { calculateSharpeRatio } from "./functions/metrics/riskAdjustedMetrics.js";
+
+const sharpe = calculateSharpeRatio({
+  returns: dailyReturns,
+  riskFreeRate: 0.05, // 5% annual
+});
+console.log(`Sharpe Ratio: ${sharpe?.sharpe?.toFixed(2)}`);
+```
+
+---
+
+### `calculateMaxDrawdown(opts)`
+
+Calculates maximum drawdown from portfolio series.
+
+**Parameters:**
+
+- `opts.portfolioSeries` (required) - Array of portfolio series objects
+
+**Returns:** `Object` - Object with `{ maxDrawdown, maxDrawdownDate, drawdownSeries }`
+
+**Example:**
+
+```javascript
+import { calculateMaxDrawdown } from "./functions/metrics/riskMetrics.js";
+
+const drawdown = calculateMaxDrawdown({ portfolioSeries });
+console.log(`Max Drawdown: ${(drawdown.maxDrawdown * 100).toFixed(2)}%`);
+```
+
+---
+
+### `calculateVolatility(opts)`
+
+Calculates volatility (standard deviation) of returns.
+
+**Parameters:**
+
+- `opts.returns` (required) - Array of daily returns
+- `opts.annualized` (optional) - Whether to annualize (default: true)
+
+**Returns:** `Object` - Object with `{ volatility, periodVolatility }`
+
+**Example:**
+
+```javascript
+import { calculateVolatility } from "./functions/metrics/riskMetrics.js";
+
+const vol = calculateVolatility({
+  returns: dailyReturns,
+  annualized: true,
+});
+console.log(`Annualized Volatility: ${(vol.volatility * 100).toFixed(2)}%`);
+```
+
+---
 
 ## Chart Scripts
 

@@ -11,8 +11,12 @@
  *   DATABASE_URL=mongodb://... node archive/test/clearPipelineData.js
  */
 
+import dotenv from "dotenv";
 import { ensureDbConnection, getDb, disconnectDb } from "./utils/dbConnection.js";
 import { handleError } from "./utils/errorHandling.js";
+
+// Load environment variables from .env file
+dotenv.config();
 
 async function clearPipelineData() {
   try {

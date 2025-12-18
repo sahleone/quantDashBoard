@@ -1,170 +1,39 @@
-import { formatDateToYYYYMMDD } from "../utils/dateHelpers.js";
 
 /**
- * Generates array of dates between start and end (inclusive)
+ * Builds a daily portfolio value time series from unified date mapping
  *
- * @param {Date|string} startDate - Start date
- * @param {Date|string} endDate - End date
- * @returns {Date[]} Array of Date objects
- */
-function generateDateRange(startDate, endDate) {
-  const dates = [];
-  const start = new Date(startDate);
-  const end = new Date(endDate);
-
-  // Set to start of day
-  start.setHours(0, 0, 0, 0);
-  end.setHours(23, 59, 59, 999);
-
-  const current = new Date(start);
-  while (current <= end) {
-    dates.push(new Date(current));
-    current.setDate(current.getDate() + 1);
-  }
-
-  return dates;
-}
-
-/**
- * Builds a daily portfolio value time series by combining cash and securities values
- *
- * This function takes cash series and securities value series and combines them into
- * a single aligned portfolio timeseries with:
+ * This function takes a unified date mapping (from buildUnifiedTimeseries) and converts it
+ * to an array format with:
  * - Cash balance per day
  * - Securities value per day
  * - Total portfolio value per day (cash + securities)
  * - Optional daily return calculation
  *
  * @param {Object} opts - Options object
- * @param {Array} opts.cashSeries - Array of { date, cash, currency } from buildDailyCashSeries
- * @param {Array} opts.securitiesValueSeries - Array of { date, totalSecuritiesValue, values } from buildDailySecurityValuesSeries
- * @param {Date|string} opts.startDate - Optional start date (defaults to earliest date in either series)
- * @param {Date|string} opts.endDate - Optional end date (defaults to latest date in either series)
- * @param {boolean} opts.includeDailyReturn - Whether to compute daily returns (default: false)
+ * @param {Object} opts.dateMapping - Unified date mapping {date: {cash, securitiesValue, portfolioValue}}
+ * @param {boolean} [opts.includeDailyReturn=false] - Whether to compute daily returns
  * @returns {Array} Array of objects with { date, cash, securitiesValue, portfolioValue, dailyReturn? }
  */
 export function buildDailyPortfolioSeries(opts = {}) {
-  const {
-    cashSeries,
-    securitiesValueSeries,
-    startDate: providedStartDate,
-    endDate: providedEndDate,
-    includeDailyReturn = false,
-  } = opts;
+  const { dateMapping, includeDailyReturn = false } = opts;
 
-  if (
-    (!Array.isArray(cashSeries) || cashSeries.length === 0) &&
-    (!Array.isArray(securitiesValueSeries) ||
-      securitiesValueSeries.length === 0)
-  ) {
+  if (!dateMapping || typeof dateMapping !== "object") {
     return [];
   }
 
-  // Step 1: Build quick lookup maps
-  const cashByDate = new Map();
-  if (Array.isArray(cashSeries) && cashSeries.length > 0) {
-    for (const entry of cashSeries) {
-      if (entry.date) {
-        const dateKey = formatDateToYYYYMMDD(entry.date);
-        if (dateKey) {
-          cashByDate.set(dateKey, entry.cash || 0);
-        }
-      }
-    }
+  const sortedDates = Object.keys(dateMapping).sort();
+  if (sortedDates.length === 0) {
+    return [];
   }
 
-  const secValByDate = new Map();
-  if (
-    Array.isArray(securitiesValueSeries) &&
-    securitiesValueSeries.length > 0
-  ) {
-    for (const entry of securitiesValueSeries) {
-      if (entry.date) {
-        const dateKey = formatDateToYYYYMMDD(entry.date);
-        if (dateKey) {
-          secValByDate.set(dateKey, entry.totalSecuritiesValue || 0);
-        }
-      }
-    }
-  }
-
-  // Step 2: Determine overall date range
-  let startDate = providedStartDate;
-  let endDate = providedEndDate;
-
-  if (!startDate || !endDate) {
-    // Collect all dates from both series
-    const allDates = new Set();
-
-    if (Array.isArray(cashSeries) && cashSeries.length > 0) {
-      for (const entry of cashSeries) {
-        if (entry.date) {
-          const dateKey = formatDateToYYYYMMDD(entry.date);
-          if (dateKey) {
-            allDates.add(dateKey);
-          }
-        }
-      }
-    }
-
-    if (
-      Array.isArray(securitiesValueSeries) &&
-      securitiesValueSeries.length > 0
-    ) {
-      for (const entry of securitiesValueSeries) {
-        if (entry.date) {
-          const dateKey = formatDateToYYYYMMDD(entry.date);
-          if (dateKey) {
-            allDates.add(dateKey);
-          }
-        }
-      }
-    }
-
-    if (allDates.size === 0) {
-      return [];
-    }
-
-    const sortedDates = Array.from(allDates).sort();
-
-    if (!startDate) {
-      startDate = sortedDates[0];
-    }
-    if (!endDate) {
-      endDate = sortedDates[sortedDates.length - 1];
-    }
-  }
-
-  // Build full list of all calendar dates from startDate to endDate
-  const allDates = generateDateRange(startDate, endDate);
-
-  // Step 3: Initialize state
-  let lastCash = 0;
-  let lastSecVal = 0;
   let prevPortfolioValue = null;
   const portfolioSeries = [];
 
-  // Step 4: Loop over each calendar date
-  for (const date of allDates) {
-    const dateKey = formatDateToYYYYMMDD(date);
-    if (!dateKey) {
-      continue;
-    }
-
-    // Update cash
-    if (cashByDate.has(dateKey)) {
-      lastCash = cashByDate.get(dateKey);
-    }
-    // Else: keep lastCash as previous day (carry forward)
-
-    // Update securities value
-    if (secValByDate.has(dateKey)) {
-      lastSecVal = secValByDate.get(dateKey);
-    }
-    // Else: keep lastSecVal as previous day (carry forward)
-
-    // Compute portfolio value
-    const portfolioValue = lastCash + lastSecVal;
+  for (const dateStr of sortedDates) {
+    const dayData = dateMapping[dateStr];
+    const cash = dayData?.cash || 0;
+    const securitiesValue = dayData?.securitiesValue || 0;
+    const portfolioValue = dayData?.portfolioValue || cash + securitiesValue;
 
     // Optional: Compute simple daily return
     let dailyReturn = null;
@@ -174,11 +43,10 @@ export function buildDailyPortfolioSeries(opts = {}) {
       }
     }
 
-    // Build row
     const row = {
-      date: dateKey,
-      cash: lastCash,
-      securitiesValue: lastSecVal,
+      date: dateStr,
+      cash,
+      securitiesValue,
       portfolioValue,
     };
 
@@ -187,8 +55,6 @@ export function buildDailyPortfolioSeries(opts = {}) {
     }
 
     portfolioSeries.push(row);
-
-    // Update for next iteration
     prevPortfolioValue = portfolioValue;
   }
 
@@ -196,63 +62,101 @@ export function buildDailyPortfolioSeries(opts = {}) {
 }
 
 /**
- * Builds daily portfolio series for multiple accounts
- * Convenience function that processes cash and securities series for each account separately
+ * Validates portfolio series for potential double counting issues
+ * Logs warnings if suspicious patterns are detected
+ *
+ * @param {Array} portfolioSeries - Array of portfolio series entries
+ */
+function validatePortfolioSeries(portfolioSeries) {
+  if (!Array.isArray(portfolioSeries) || portfolioSeries.length === 0) {
+    return;
+  }
+
+  let prevCash = 0;
+  let prevSecVal = 0;
+  let prevPortfolioValue = null;
+
+  for (let i = 0; i < portfolioSeries.length; i++) {
+    const curr = portfolioSeries[i];
+    const cash = curr.cash || 0;
+    const secVal = curr.securitiesValue || 0;
+    const portfolioValue = curr.portfolioValue || 0;
+
+    // Check that portfolio value equals cash + securities
+    const expectedPortfolioValue = cash + secVal;
+    const diff = Math.abs(portfolioValue - expectedPortfolioValue);
+    if (diff > 0.01) {
+      console.warn(
+        `[Portfolio Validation] ${curr.date}: Portfolio value mismatch. ` +
+          `Expected: ${expectedPortfolioValue.toFixed(
+            2
+          )}, Got: ${portfolioValue.toFixed(2)}, Diff: ${diff.toFixed(2)}`
+      );
+    }
+
+    // Check for suspiciously large changes that might indicate double counting
+    if (prevPortfolioValue !== null) {
+      const portfolioChange = portfolioValue - prevPortfolioValue;
+      const cashChange = cash - prevCash;
+      const secChange = secVal - prevSecVal;
+      const expectedChange = cashChange + secChange;
+      const changeDiff = Math.abs(portfolioChange - expectedChange);
+
+      if (changeDiff > 0.01) {
+        console.warn(
+          `[Portfolio Validation] ${curr.date}: Portfolio change mismatch. ` +
+            `Portfolio change: ${portfolioChange.toFixed(2)}, ` +
+            `Cash change: ${cashChange.toFixed(2)}, ` +
+            `Securities change: ${secChange.toFixed(2)}, ` +
+            `Expected sum: ${expectedChange.toFixed(2)}, ` +
+            `Diff: ${changeDiff.toFixed(2)}`
+        );
+      }
+
+      // Check for unusually large jumps (might indicate double counting)
+      const absChange = Math.abs(portfolioChange);
+      const prevValue = Math.abs(prevPortfolioValue);
+      if (prevValue > 0 && absChange / prevValue > 0.5) {
+        console.warn(
+          `[Portfolio Validation] ${curr.date}: Large portfolio value change detected. ` +
+            `Change: ${portfolioChange.toFixed(2)} (${(
+              (portfolioChange / prevValue) *
+              100
+            ).toFixed(2)}%), ` +
+            `Previous: ${prevPortfolioValue.toFixed(
+              2
+            )}, Current: ${portfolioValue.toFixed(2)}`
+        );
+      }
+    }
+
+    prevCash = cash;
+    prevSecVal = secVal;
+    prevPortfolioValue = portfolioValue;
+  }
+}
+
+/**
+ * Builds daily portfolio series for multiple accounts from unified date mappings
  *
  * @param {Object} opts - Options object
- * @param {Object} opts.cashSeriesByAccount - Map of accountId -> cash series array
- * @param {Object} opts.securitiesValueSeriesByAccount - Map of accountId -> securities value series array
- * @param {Date|string} opts.startDate - Optional start date
- * @param {Date|string} opts.endDate - Optional end date
- * @param {boolean} opts.includeDailyReturn - Whether to compute daily returns (default: false)
+ * @param {Object} opts.dateMappingsByAccount - Map of accountId -> dateMapping {date: {cash, securitiesValue, portfolioValue}}
+ * @param {boolean} [opts.includeDailyReturn=false] - Whether to compute daily returns
  * @returns {Object} Map of accountId -> portfolio series array
  */
 export function buildDailyPortfolioSeriesForAccounts(opts = {}) {
-  const {
-    cashSeriesByAccount,
-    securitiesValueSeriesByAccount,
-    startDate,
-    endDate,
-    includeDailyReturn,
-  } = opts;
+  const { dateMappingsByAccount, includeDailyReturn = false } = opts;
 
-  if (
-    (!cashSeriesByAccount ||
-      typeof cashSeriesByAccount !== "object") &&
-    (!securitiesValueSeriesByAccount ||
-      typeof securitiesValueSeriesByAccount !== "object")
-  ) {
-    throw new Error(
-      "Either cashSeriesByAccount or securitiesValueSeriesByAccount must be provided"
-    );
+  if (!dateMappingsByAccount || typeof dateMappingsByAccount !== "object") {
+    throw new Error("dateMappingsByAccount must be provided");
   }
 
   const results = {};
 
-  // Get all account IDs from both maps
-  const allAccountIds = new Set();
-  if (cashSeriesByAccount) {
-    for (const accountId of Object.keys(cashSeriesByAccount)) {
-      allAccountIds.add(accountId);
-    }
-  }
-  if (securitiesValueSeriesByAccount) {
-    for (const accountId of Object.keys(securitiesValueSeriesByAccount)) {
-      allAccountIds.add(accountId);
-    }
-  }
-
-  for (const accountId of allAccountIds) {
+  for (const [accountId, dateMapping] of Object.entries(dateMappingsByAccount)) {
     try {
-      const cashSeries = cashSeriesByAccount?.[accountId] || [];
-      const securitiesValueSeries =
-        securitiesValueSeriesByAccount?.[accountId] || [];
-
       const series = buildDailyPortfolioSeries({
-        cashSeries,
-        securitiesValueSeries,
-        startDate,
-        endDate,
+        dateMapping,
         includeDailyReturn,
       });
 
@@ -268,4 +172,3 @@ export function buildDailyPortfolioSeriesForAccounts(opts = {}) {
 
   return results;
 }
-

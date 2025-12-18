@@ -6,7 +6,6 @@ function Chart({ portfolioValue }) {
   if (!portfolioValue || !portfolioValue.points || portfolioValue.points.length === 0) {
     return (
       <div className="chart">
-        <h2>Portfolio Value</h2>
         <p>No portfolio data available. Connect a brokerage account to view your portfolio value over time.</p>
       </div>
     );
@@ -42,42 +41,6 @@ function Chart({ portfolioValue }) {
 
   return (
     <div className="chart">
-      <h2>Portfolio Value</h2>
-      {portfolioValue.summary && (
-        <div className="chart-summary">
-          <div>
-            <span className="summary-label">Start Value: </span>
-            <span className="summary-value">
-              ${portfolioValue.summary.startValue?.toLocaleString("en-US", {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-              }) || "0.00"}
-            </span>
-          </div>
-          <div>
-            <span className="summary-label">End Value: </span>
-            <span className="summary-value">
-              ${portfolioValue.summary.endValue?.toLocaleString("en-US", {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-              }) || "0.00"}
-            </span>
-          </div>
-          {portfolioValue.summary.totalReturn !== undefined && (
-            <div>
-              <span className="summary-label">Total Return: </span>
-              <span
-                className="summary-value"
-                style={{
-                  color: portfolioValue.summary.totalReturn >= 0 ? "#0a8a00" : "#d32f2f",
-                }}
-              >
-                {(portfolioValue.summary.totalReturn * 100).toFixed(2)}%
-              </span>
-            </div>
-          )}
-        </div>
-      )}
       <div className="chart-container">
         {hasBenchmark ? (
           <div className="line-graph-container">

@@ -182,12 +182,12 @@ async function calculatePeriodMetrics(accountId, userId, period, asOfDate, db) {
     avgPortfolioValue
   );
 
+  // Calculate Time-Weighted Return (TWR) instead of simple point-to-point return
+  // This eliminates the impact of external cash flows (deposits/withdrawals)
   const startValue = first.totalValue || 0;
   const endValue = latest.totalValue || 0;
-  metrics.totalReturn = returnsMetrics.calculatePointToPointReturn(
-    startValue,
-    endValue
-  );
+  metrics.totalReturn =
+    returnsMetrics.calculateTWRFromTimeseries(portfolioData);
 
   const days = Math.ceil((endDate - actualStartDate) / (1000 * 60 * 60 * 24));
   const years = days / 365.25;
@@ -334,6 +334,7 @@ export async function calculateMetrics(opts = {}) {
                   userId: acctUserId,
                   accountId: acctId,
                   date: asOfDate,
+                  asOfDate: asOfDate, // Also set asOfDate for backward compatibility with old index
                   period: period,
                   metrics: metrics,
                   computedAtUtc: new Date(),

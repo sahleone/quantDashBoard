@@ -1,11 +1,28 @@
 .portfolio {
-  background: var(--bg-card);
+  background: var(--bg-dark, #f5f5f5);
   color: var(--text-primary);
-  border-radius: 16px;
-  padding: 2rem;
-  max-width: 1080px;
-  margin: 2rem auto;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  padding: 32px;
+  width: 100%;
+  max-width: 100%;
+  min-height: calc(100vh - 72px);
+  box-sizing: border-box;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.portfolio-writeup {
+  background: var(--bg-card, #ffffff);
+  color: var(--text-primary);
+  border-radius: 12px;
+  padding: 32px;
+  margin: 0 0 24px 0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08), 0 2px 4px rgba(0, 0, 0, 0.04);
+  border: 1px solid var(--border, rgba(0, 0, 0, 0.06));
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 95%;
 }
 
 .portfolio h1 {
@@ -36,7 +53,22 @@
 }
 
 .portfolio-content {
-  margin-top: 2rem;
+  background: var(--bg-card, #ffffff);
+  border-radius: 12px;
+  padding: 32px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08), 0 2px 4px rgba(0, 0, 0, 0.04);
+  border: 1px solid var(--border, rgba(0, 0, 0, 0.06));
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 95%;
+}
+
+.portfolio-content > div {
+  width: 100% !important;
+  max-width: 100% !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: stretch !important;
 }
 
 .portfolio-table-wrapper {
@@ -47,13 +79,18 @@
 .portfolio-table {
   width: 100%;
   border-collapse: collapse;
-  background: rgba(255, 255, 255, 0.04);
-  border-radius: 12px;
+  background: var(--bg-offwhite, #f8f9fa);
+  border-radius: 10px;
   overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
 }
 
 .portfolio-table thead {
-  background: rgba(255, 255, 255, 0.08);
+  background: linear-gradient(
+    135deg,
+    var(--bg-card, #ffffff) 0%,
+    var(--bg-offwhite, #f5f5f5) 100%
+  );
 }
 
 .portfolio-table th,
@@ -71,7 +108,8 @@
 }
 
 .portfolio-table tbody tr:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(0, 122, 204, 0.08);
+  transition: background 0.2s ease;
 }
 
 .portfolio-table td.account-cell {
@@ -80,11 +118,13 @@
 }
 
 .portfolio-status {
-  padding: 1rem;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.06);
+  padding: 24px 32px;
+  border-radius: 12px;
+  background: var(--bg-card, #ffffff);
   color: var(--text-secondary);
   text-align: center;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  border: 1px solid var(--border, rgba(0, 0, 0, 0.06));
 }
 
 .portfolio-status--error {
@@ -101,14 +141,124 @@
   font-weight: 600;
 }
 
+.pnl-neutral {
+  color: #333;
+  font-weight: 500;
+}
+
+.account-cards-container {
+  display: flex !important;
+  flex-direction: column !important;
+  flex-wrap: nowrap !important;
+  gap: 32px;
+  margin-bottom: 24px;
+  width: 100% !important;
+  max-width: 100% !important;
+  align-items: stretch !important;
+  /* Explicitly prevent any grid or row layout */
+  grid-template-columns: none !important;
+  grid-template-rows: none !important;
+}
+
+.account-card {
+  display: flex !important;
+  flex-direction: row !important;
+  justify-content: space-between;
+  align-items: center;
+  padding: 40px 48px !important;
+  width: 100% !important;
+  min-width: 100% !important;
+  max-width: 100% !important;
+  min-height: 180px;
+  border-radius: 16px !important;
+  border: 1px solid var(--border, rgba(0, 0, 0, 0.06)) !important;
+  background: var(--bg-card, #ffffff) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  box-sizing: border-box !important;
+  text-align: left;
+  margin: 0 !important;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  flex-shrink: 0 !important;
+  flex-grow: 1 !important;
+  /* Override global button styles */
+  font-weight: normal !important;
+}
+
+.account-card,
+.account-card:focus,
+.account-card:active {
+  outline: none;
+  border: 1px solid var(--border, rgba(0, 0, 0, 0.06));
+}
+
+.account-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.account-card > div:first-child {
+  text-align: left;
+}
+
+.account-card-name {
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+
+.account-card-id {
+  font-size: 14px;
+  color: var(--text-secondary, #666);
+  margin-bottom: 4px;
+}
+
+.account-card-institution {
+  font-size: 12px;
+  color: var(--text-secondary, #999);
+  font-style: italic;
+}
+
+.account-card > div:last-child {
+  text-align: right;
+}
+
+.account-card-value {
+  font-size: 28px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+
+.account-card-breakdown {
+  font-size: 14px;
+  color: var(--text-secondary, #666);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 @media (max-width: 768px) {
   .portfolio {
     padding: 1.5rem;
+  }
+
+  .portfolio-writeup,
+  .portfolio-content {
+    max-width: 100%;
   }
 
   .portfolio-summary {
     gap: 1rem;
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .account-card {
+    padding: 20px 24px;
   }
 }

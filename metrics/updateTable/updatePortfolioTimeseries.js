@@ -106,29 +106,91 @@ function normalizeCryptoSymbol(symbol) {
 }
 
 /**
- * Calculate stock value for a date from positions and prices
- * Optimized to use aggregation pipeline for better performance
- * Handles crypto symbols by checking both original and normalized versions
+ * Build units tracking from activities (like attempt.js)
+ * Tracks units per symbol per day by processing BUY, SELL, and REI activities
+ * @param {Array} activities - Array of activity objects
+ * @param {Array} allDates - Array of date strings in YYYY-MM-DD format
+ * @returns {Map} - Map of date -> {symbol: units}
  */
-async function calculateStockValue(accountId, date, db) {
-  const timeseriesCollection = db.collection("equitiesweighttimeseries");
+function buildUnitsFromActivities(activities, allDates) {
+  const UNITS_ACTIVITY_TYPES = new Set(["BUY", "SELL", "REI"]);
+
+  // Group activities by date
+  const activitiesByDate = new Map();
+  activities.forEach((activity) => {
+    const dateValue = activity.trade_date || activity.date;
+    if (!dateValue) return;
+
+    let dateStr;
+    if (dateValue instanceof Date) {
+      dateStr = dateValue.toISOString().split("T")[0];
+    } else {
+      const dateObj = new Date(dateValue);
+      dateStr = dateObj.toISOString().split("T")[0];
+    }
+
+    if (!activitiesByDate.has(dateStr)) {
+      activitiesByDate.set(dateStr, []);
+    }
+    activitiesByDate.get(dateStr).push(activity);
+  });
+
+  // Build units tracking day by day
+  const unitsByDate = new Map();
+  const units = {}; // Track units per symbol: {SYMBOL: quantity}
+
+  for (const dateStr of allDates.sort()) {
+    const dayActivities = activitiesByDate.get(dateStr) || [];
+
+    // Process units changes
+    dayActivities.forEach((activity) => {
+      const type = String(activity.type || "").toUpperCase();
+      if (UNITS_ACTIVITY_TYPES.has(type)) {
+        const symbol = activity.symbol || activity.symbolObj?.symbol || null;
+        if (!symbol) return;
+
+        const quantity = parseFloat(activity.quantity || activity.units || 0);
+        if (isNaN(quantity)) return;
+
+        // Initialize symbol if not present
+        if (!units[symbol]) {
+          units[symbol] = 0;
+        }
+
+        // Update units based on activity type
+        if (type === "BUY" || type === "REI") {
+          // BUY and REI add units
+          units[symbol] += Math.abs(quantity);
+        } else if (type === "SELL") {
+          // SELL subtracts units
+          units[symbol] -= Math.abs(quantity);
+        }
+      }
+    });
+
+    // Create a snapshot of current units state for this date
+    unitsByDate.set(dateStr, { ...units });
+  }
+
+  return unitsByDate;
+}
+
+/**
+ * Calculate stock value for a date from units tracking and prices
+ * Uses units built from activities (like attempt.js approach)
+ */
+async function calculateStockValueFromUnits(units, date, db) {
   const priceHistoryCollection = db.collection("pricehistories");
 
-  const positions = await timeseriesCollection
-    .find({
-      accountId: accountId,
-      date: date,
-    })
-    .toArray();
-
-  if (positions.length === 0) {
+  if (!units || Object.keys(units).length === 0) {
     return { stockValue: 0, positions: [] };
   }
 
-  let totalStockValue = 0;
-  const positionDetails = [];
+  const symbols = Object.keys(units).filter((s) => units[s] > 0);
 
-  const symbols = positions.map((p) => p.symbol);
+  if (symbols.length === 0) {
+    return { stockValue: 0, positions: [] };
+  }
 
   // Build list of symbols to query, including normalized crypto versions
   const symbolsToQuery = new Set(symbols);
@@ -138,14 +200,19 @@ async function calculateStockValue(accountId, date, db) {
     }
   }
 
+  // Normalize date for price query (use end of day to include prices for the query date)
+  const normalizedDate = new Date(date);
+  normalizedDate.setHours(0, 0, 0, 0);
+  const priceQueryDate = new Date(normalizedDate);
+  priceQueryDate.setHours(23, 59, 59, 999);
+
   // Use aggregation to get latest price per symbol more efficiently
-  // This is faster than fetching all prices and filtering in memory
   const prices = await priceHistoryCollection
     .aggregate([
       {
         $match: {
           symbol: { $in: Array.from(symbolsToQuery) },
-          date: { $lte: date },
+          date: { $lte: priceQueryDate },
         },
       },
       {
@@ -166,9 +233,12 @@ async function calculateStockValue(accountId, date, db) {
     pricesBySymbol.set(price._id, price.close || 0);
   }
 
-  for (const position of positions) {
-    const symbol = position.symbol;
-    const units = position.units || 0;
+  let totalStockValue = 0;
+  const positionDetails = [];
+
+  for (const symbol of symbols) {
+    const symbolUnits = units[symbol] || 0;
+    if (symbolUnits <= 0) continue;
 
     // Try original symbol first, then normalized crypto version
     let price = pricesBySymbol.get(symbol) || 0;
@@ -177,12 +247,12 @@ async function calculateStockValue(accountId, date, db) {
       price = pricesBySymbol.get(normalizedSymbol) || 0;
     }
 
-    const value = units * price;
+    const value = symbolUnits * price;
     totalStockValue += value;
 
     positionDetails.push({
       symbol: symbol,
-      units: units,
+      units: symbolUnits,
       price: price,
       value: value,
     });
@@ -200,15 +270,28 @@ async function calculateStockValue(accountId, date, db) {
  * 2. Build date range from earliest activity to end date
  * 3. Initialize cash = 0
  * 4. For each date, process activities in order, updating cash balance
+ *
+ * @param {string} accountId - Account ID
+ * @param {Object} db - MongoDB database connection
+ * @param {Date} endDate - End date for calculations
+ * @param {Array} activities - Optional: pre-fetched activities array. If not provided, will fetch from database.
+ * @returns {Object} Cash flow data with cashValue, cashFlowDay, extFlowDay, extFlowCum maps
  */
-async function buildCashAndFlows(accountId, db, endDate = null) {
-  const activitiesCollection = db.collection("snaptradeaccountactivities");
-
-  // Step 1: Sort activities by trade_date (oldest → newest), and within same date by _id (which contains timestamp)
-  const activities = await activitiesCollection
-    .find({ accountId: accountId })
-    .sort({ trade_date: 1, date: 1, _id: 1 })
-    .toArray();
+async function buildCashAndFlows(
+  accountId,
+  db,
+  endDate = null,
+  activities = null
+) {
+  // If activities not provided, fetch them from database
+  if (!activities) {
+    const activitiesCollection = db.collection("snaptradeaccountactivities");
+    // Step 1: Sort activities by trade_date (oldest → newest), and within same date by _id (which contains timestamp)
+    activities = await activitiesCollection
+      .find({ accountId: accountId })
+      .sort({ trade_date: 1, date: 1, _id: 1 })
+      .toArray();
+  }
 
   if (activities.length === 0) {
     return {
@@ -269,12 +352,13 @@ async function buildCashAndFlows(accountId, db, endDate = null) {
   const extFlowDay = new Map();
   const extFlowCum = new Map();
 
-  const EXT_TYPES = new Set([
-    "CONTRIBUTION",
-    "DEPOSIT",
-    "WITHDRAWAL",
-    "DIVIDEND",
-  ]);
+  // External flow types (for returns calculation)
+  // These are deposits/withdrawals that should NOT affect returns
+  // Note: DIVIDEND, FEE, and INTEREST are NOT external flows:
+  //   - DIVIDEND: Investment return (should be included in returns)
+  //   - FEE: Money you owe to broker (margin interest, account fees) - negative amount
+  //   - INTEREST: Money broker owes you (interest on cash) - positive amount
+  const EXT_TYPES = new Set(["CONTRIBUTION", "DEPOSIT", "WITHDRAWAL"]);
 
   let runningExtFlow = 0;
   let minCashValue = 0;
@@ -296,19 +380,22 @@ async function buildCashAndFlows(accountId, db, endDate = null) {
       if (isNaN(amount)) continue;
 
       // Update cash balance (ALL activities affect cash)
+      // Note: SnapTrade should provide amounts with correct signs:
+      //   - FEE: negative (money you owe to broker)
+      //   - INTEREST: positive (money broker owes you)
+      //   - BUY: negative (cash out)
+      //   - SELL: positive (cash in)
       cash += amount;
       dayCashFlow += amount;
 
       // Track external flows for returns calculation
+      // Only CONTRIBUTION, DEPOSIT, and WITHDRAWAL are external flows
+      // DIVIDEND, FEE, and INTEREST are NOT external flows (they're investment returns/costs)
       if (EXT_TYPES.has(type)) {
         let extAmount = amount;
         if (type === "WITHDRAWAL") {
           extAmount = -Math.abs(amount);
-        } else if (
-          type === "CONTRIBUTION" ||
-          type === "DEPOSIT" ||
-          type === "DIVIDEND"
-        ) {
+        } else if (type === "CONTRIBUTION" || type === "DEPOSIT") {
           extAmount = Math.abs(amount);
         }
 
@@ -558,7 +645,8 @@ export async function updatePortfolioTimeseries(opts = {}) {
   };
 
   try {
-    const timeseriesCollection = db.collection("equitiesweighttimeseries");
+    // Get accounts from activities instead of EquitiesWeightTimeseries
+    const activitiesCollection = db.collection("snaptradeaccountactivities");
     const query = {};
     if (userId) {
       query.userId = userId;
@@ -567,11 +655,11 @@ export async function updatePortfolioTimeseries(opts = {}) {
       query.accountId = accountId;
     }
 
-    const accounts = await timeseriesCollection.distinct("accountId", query);
+    const accounts = await activitiesCollection.distinct("accountId", query);
     summary.totalAccounts = accounts.length;
 
     if (accounts.length === 0) {
-      console.log("No accounts found");
+      console.log("No accounts found in activities");
       await mongoose.disconnect();
       return summary;
     }
@@ -582,16 +670,19 @@ export async function updatePortfolioTimeseries(opts = {}) {
 
     for (const acctId of accounts) {
       try {
-        const samplePosition = await timeseriesCollection.findOne({
+        // Get userId from activities
+        const sampleActivity = await activitiesCollection.findOne({
           accountId: acctId,
         });
-        if (!samplePosition) {
-          console.warn(`No positions found for account ${acctId}`);
+        if (!sampleActivity) {
+          console.warn(
+            `⚠️  No activities found for account ${acctId}. Skipping.`
+          );
           summary.skipped++;
           continue;
         }
 
-        const acctUserId = samplePosition.userId;
+        const acctUserId = sampleActivity.userId;
         if (!acctUserId) {
           console.warn(`No userId found for account ${acctId}`);
           summary.skipped++;
@@ -600,27 +691,97 @@ export async function updatePortfolioTimeseries(opts = {}) {
 
         console.log(`Processing account ${acctId} (user ${acctUserId})...`);
 
-        const dateRange = await getDateRange(acctId, fullSync, db);
-        if (!dateRange) {
-          console.log(`No date range for account ${acctId}`);
+        // Get all activities for this account FIRST (like attempt.js)
+        const activities = await activitiesCollection
+          .find({ accountId: acctId })
+          .sort({ trade_date: 1, date: 1, _id: 1 })
+          .toArray();
+
+        if (activities.length === 0) {
+          console.warn(`No activities found for account ${acctId}`);
           summary.skipped++;
           continue;
         }
 
+        // Determine date range from activities (like attempt.js)
+        // Find earliest and latest activity dates
+        let earliestActivityDate = null;
+        let latestActivityDate = null;
+        for (const activity of activities) {
+          const dateValue = activity.trade_date || activity.date;
+          if (!dateValue) continue;
+          const date = new Date(dateValue);
+          date.setHours(0, 0, 0, 0);
+          if (!earliestActivityDate || date < earliestActivityDate) {
+            earliestActivityDate = date;
+          }
+          if (!latestActivityDate || date > latestActivityDate) {
+            latestActivityDate = date;
+          }
+        }
+
+        if (!earliestActivityDate) {
+          console.warn(`No valid activity dates found for account ${acctId}`);
+          summary.skipped++;
+          continue;
+        }
+
+        // Use activity-based date range, but respect fullSync setting
+        let startDate, endDate;
+        if (fullSync) {
+          // Full sync: use earliest activity to today
+          startDate = earliestActivityDate;
+          endDate = new Date();
+          endDate.setHours(23, 59, 59, 999);
+        } else {
+          // Incremental: check last portfolio timeseries entry
+          const portfolioCollection = db.collection("portfoliotimeseries");
+          const lastEntry = await portfolioCollection
+            .find({ accountId: acctId })
+            .sort({ date: -1 })
+            .limit(1)
+            .toArray();
+
+          if (lastEntry.length > 0) {
+            startDate = new Date(lastEntry[0].date);
+            startDate.setDate(startDate.getDate() + 1);
+            // Ensure startDate is not before earliest activity
+            if (startDate < earliestActivityDate) {
+              startDate = earliestActivityDate;
+            }
+          } else {
+            startDate = earliestActivityDate;
+          }
+          endDate = new Date();
+          endDate.setHours(23, 59, 59, 999);
+        }
+
+        // Pass activities to buildCashAndFlows to avoid fetching twice
         const cashFlows = await buildCashAndFlows(
           acctId,
           db,
-          dateRange.endDate
+          endDate,
+          activities
         );
 
+        // Generate date range from startDate to endDate (like attempt.js)
         const dates = [];
-        const current = new Date(dateRange.startDate);
-        const end = new Date(dateRange.endDate);
+        const current = new Date(startDate);
+        const end = new Date(endDate);
 
         while (current <= end) {
           dates.push(new Date(current));
           current.setDate(current.getDate() + 1);
         }
+
+        // Build all date strings
+        const allDatesSorted = dates.map((d) => d.toISOString().split("T")[0]);
+
+        // Build units tracking from activities (like attempt.js)
+        const unitsByDate = buildUnitsFromActivities(
+          activities,
+          allDatesSorted
+        );
 
         const portfolioData = new Map();
 
@@ -628,13 +789,6 @@ export async function updatePortfolioTimeseries(opts = {}) {
         const cashValueByDate = new Map();
         let lastCashValue = 0;
         const allCashDates = Array.from(cashFlows.cashValue.keys()).sort();
-
-        // Create a map of all dates we need to process
-        const allDatesSet = new Set(
-          dates.map((d) => d.toISOString().split("T")[0])
-        );
-        allCashDates.forEach((cfDate) => allDatesSet.add(cfDate));
-        const allDatesSorted = Array.from(allDatesSet).sort();
 
         // Forward-fill cash values (like Python's ffill)
         for (const dateKey of allDatesSorted) {
@@ -647,23 +801,36 @@ export async function updatePortfolioTimeseries(opts = {}) {
         for (const date of dates) {
           const dateKey = date.toISOString().split("T")[0];
 
-          const { stockValue, positions } = await calculateStockValue(
-            acctId,
+          // Get units for this date
+          const units = unitsByDate.get(dateKey) || {};
+
+          // Calculate stock value from units and prices
+          const { stockValue, positions } = await calculateStockValueFromUnits(
+            units,
             date,
             db
           );
 
-          // Debug: Log if stock value is 0 but positions exist
-          if (stockValue === 0 && positions.length > 0) {
+          // Debug: Log if stock value is 0 but we have units
+          const unitsCount = Object.keys(units).filter(
+            (s) => units[s] > 0
+          ).length;
+          if (stockValue === 0 && unitsCount > 0) {
             const symbolsWithoutPrices = positions
               .filter((p) => p.price === 0)
               .map((p) => p.symbol);
+
             if (symbolsWithoutPrices.length > 0) {
               console.warn(
-                `⚠️  Account ${acctId} on ${dateKey}: Stock value is 0 but ${positions.length} positions exist. ` +
+                `⚠️  Account ${acctId} on ${dateKey}: Stock value is 0 but ${unitsCount} symbols have units. ` +
                   `Missing prices for: ${symbolsWithoutPrices
-                    .slice(0, 5)
-                    .join(", ")}${symbolsWithoutPrices.length > 5 ? "..." : ""}`
+                    .slice(0, 10)
+                    .join(", ")}${
+                    symbolsWithoutPrices.length > 10
+                      ? `... (${symbolsWithoutPrices.length} total)`
+                      : ""
+                  }. ` +
+                  `Run updatePriceData.js to fetch missing prices.`
               );
             }
           }

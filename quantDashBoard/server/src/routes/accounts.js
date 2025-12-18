@@ -69,6 +69,15 @@ router.get("/activities", (req, res) => {
   accountsController.getActivities(req, res);
 });
 
+/**
+ * Get Dividends by Month (last 12 months)
+ * GET /api/accounts/dividends/by-month?accountId=123
+ * Response: { months: [{ month: "2024-01", amount: 150.50 }, ...], total: 1800.00 }
+ */
+router.get("/dividends/by-month", (req, res) => {
+  accountsController.getDividendsByMonth(req, res);
+});
+
 // NOTE: options chain is provided by /api/snaptrade/options/chain via snapTradeController
 
 /**

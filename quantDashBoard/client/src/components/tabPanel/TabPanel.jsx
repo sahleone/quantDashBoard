@@ -106,10 +106,36 @@ function TabPanel({ performanceMetrics, riskMetrics, factorMetrics }) {
               </span>
             </div>
           )}
-          {perf.calmar !== undefined && (
+          {perf.calmar !== undefined && perf.calmar !== null && (
             <div className="metric-item">
               <span className="metric-label">Calmar Ratio:</span>
               <span className="metric-value">{formatNumber(perf.calmar, 2)}</span>
+            </div>
+          )}
+          {perf.cagr !== undefined && perf.cagr !== null && (
+            <div className="metric-item">
+              <span className="metric-label">CAGR:</span>
+              <span
+                className="metric-value"
+                style={{
+                  color: perf.cagr >= 0 ? "#0a8a00" : "#d32f2f",
+                }}
+              >
+                {formatPercent(perf.cagr)}
+              </span>
+            </div>
+          )}
+          {perf.alpha !== undefined && perf.alpha !== null && (
+            <div className="metric-item">
+              <span className="metric-label">Alpha (CAPM):</span>
+              <span
+                className="metric-value"
+                style={{
+                  color: perf.alpha >= 0 ? "#0a8a00" : "#d32f2f",
+                }}
+              >
+                {formatPercent(perf.alpha)}
+              </span>
             </div>
           )}
         </div>
@@ -140,16 +166,55 @@ function TabPanel({ performanceMetrics, riskMetrics, factorMetrics }) {
               <span className="metric-value">{formatNumber(risk.beta, 2)}</span>
             </div>
           )}
-          {risk.var !== undefined && (
+          {risk.var95 !== undefined && risk.var95 !== null && (
+            <div className="metric-item">
+              <span className="metric-label">VaR (95%):</span>
+              <span className="metric-value">{formatPercent(risk.var95)}</span>
+            </div>
+          )}
+          {risk.var !== undefined && risk.var !== null && (
             <div className="metric-item">
               <span className="metric-label">VaR (Value at Risk):</span>
               <span className="metric-value">{formatPercent(risk.var)}</span>
             </div>
           )}
-          {risk.cvar !== undefined && (
+          {risk.cvar95 !== undefined && risk.cvar95 !== null && (
+            <div className="metric-item">
+              <span className="metric-label">CVaR (95%):</span>
+              <span className="metric-value">{formatPercent(risk.cvar95)}</span>
+            </div>
+          )}
+          {risk.cvar !== undefined && risk.cvar !== null && (
             <div className="metric-item">
               <span className="metric-label">CVaR (Conditional VaR):</span>
               <span className="metric-value">{formatPercent(risk.cvar)}</span>
+            </div>
+          )}
+          {risk.downsideDeviation !== undefined && risk.downsideDeviation !== null && (
+            <div className="metric-item">
+              <span className="metric-label">Downside Deviation:</span>
+              <span className="metric-value">{formatPercent(risk.downsideDeviation)}</span>
+            </div>
+          )}
+          {risk.omega !== undefined && risk.omega !== null && (
+            <div className="metric-item">
+              <span className="metric-label">Omega Ratio:</span>
+              <span className="metric-value">
+                {risk.omega === Infinity ? "∞" : formatNumber(risk.omega, 2)}
+              </span>
+            </div>
+          )}
+          {risk.sharpeConfidenceInterval !== undefined && risk.sharpeConfidenceInterval !== null && (
+            <div className="metric-item">
+              <span className="metric-label">Sharpe Ratio (95% CI):</span>
+              <span className="metric-value">
+                {formatNumber(risk.sharpeConfidenceInterval.sharpeRatio || risk.sharpeConfidenceInterval, 2)}
+                {risk.sharpeConfidenceInterval.lowerBound !== undefined && risk.sharpeConfidenceInterval.upperBound !== undefined && (
+                  <span style={{ fontSize: "0.85em", color: "#666", marginLeft: "8px" }}>
+                    [{formatNumber(risk.sharpeConfidenceInterval.lowerBound, 2)}, {formatNumber(risk.sharpeConfidenceInterval.upperBound, 2)}]
+                  </span>
+                )}
+              </span>
             </div>
           )}
           {risk.maxDrawdown !== undefined && (

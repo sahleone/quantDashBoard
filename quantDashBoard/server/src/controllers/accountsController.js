@@ -1082,6 +1082,117 @@ class AccountsController {
       });
     }
   }
+
+  /**
+   * Get dividends aggregated by month for the last 12 months
+   *
+   * Retrieves dividend activities and aggregates them by month.
+   *
+   * @async
+   * @method getDividendsByMonth
+   * @param {Object} req - Express request object
+   * @param {Object} res - Express response object
+   * @returns {Promise<void>}
+   *
+   * @example
+   * GET /api/accounts/dividends/by-month?accountId=123
+   * Response: { months: [{ month: "2024-01", amount: 150.50 }, ...], total: 1800.00 }
+   */
+  async getDividendsByMonth(req, res) {
+    try {
+      const user = req.user;
+      if (!user) {
+        return res.status(401).json({
+          error: { code: "UNAUTHORIZED", message: "Not authenticated" },
+        });
+      }
+
+      const { accountId } = req.query;
+      const userId = user.userId;
+
+      // Calculate date range for last 12 months
+      const endDate = new Date();
+      const startDate = new Date();
+      startDate.setMonth(startDate.getMonth() - 12);
+
+      // Build query
+      const query = {
+        userId,
+        type: { $in: ["DIVIDEND", "STOCK_DIVIDEND"] },
+        date: { $gte: startDate, $lte: endDate },
+      };
+
+      if (accountId) {
+        query.accountId = accountId;
+      }
+
+      // Fetch dividend activities from database
+      const dividendActivities = await Activities.find(query).sort({ date: 1 });
+
+      // Aggregate by month
+      const monthlyDividends = {};
+      let totalDividends = 0;
+
+      dividendActivities.forEach((activity) => {
+        if (!activity.date || !activity.amount) return;
+
+        const date = new Date(activity.date);
+        const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+
+        if (!monthlyDividends[monthKey]) {
+          monthlyDividends[monthKey] = {
+            month: monthKey,
+            amount: 0,
+            count: 0,
+          };
+        }
+
+        monthlyDividends[monthKey].amount += activity.amount || 0;
+        monthlyDividends[monthKey].count += 1;
+        totalDividends += activity.amount || 0;
+      });
+
+      // Convert to array and sort by month
+      const months = Object.values(monthlyDividends).sort((a, b) =>
+        a.month.localeCompare(b.month)
+      );
+
+      // Ensure we have all 12 months (fill missing months with 0)
+      const allMonths = [];
+      for (let i = 11; i >= 0; i--) {
+        const date = new Date();
+        date.setMonth(date.getMonth() - i);
+        const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+        const existing = months.find((m) => m.month === monthKey);
+        allMonths.push(
+          existing || {
+            month: monthKey,
+            amount: 0,
+            count: 0,
+          }
+        );
+      }
+
+      res.status(200).json({
+        months: allMonths,
+        total: totalDividends,
+        period: {
+          startDate: startDate.toISOString().split("T")[0],
+          endDate: endDate.toISOString().split("T")[0],
+        },
+        accountId: accountId || "all",
+      });
+    } catch (error) {
+      console.error("Error getting dividends by month:", error);
+      res.status(500).json({
+        error: {
+          code: "DIVIDENDS_RETRIEVAL_FAILED",
+          message: "Failed to retrieve dividends",
+          details: error.message,
+        },
+      });
+    }
+  }
 }
 
 export default new AccountsController();

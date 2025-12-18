@@ -1,5 +1,13 @@
-import { formatDateToYYYYMMDD } from "../utils/dateHelpers.js";
+import {
+  formatDateToYYYYMMDD,
+  addDaysToDateString,
+} from "../utils/dateHelpers.js";
 import { ensureDbConnection, getDb } from "../utils/dbConnection.js";
+import {
+  getMinDate,
+  createDateMapping,
+  buildCashTimeSeries,
+} from "./buildUnifiedTimeseries.js";
 
 /**
  * Generates array of dates between start and end (inclusive)
@@ -129,6 +137,54 @@ function filterUnitRelatedActivities(activities) {
 }
 
 /**
+ * Filters out option exercise/assignment/expiration activities to prevent double counting.
+ * When an option is exercised/assigned, SnapTrade creates:
+ * 1. An OPTIONEXERCISE/OPTIONASSIGNMENT activity (closes the option position)
+ * 2. A BUY/SELL activity for the underlying stock (the actual stock transaction)
+ *
+ * We should ONLY process the BUY/SELL activity (the actual stock transaction) and
+ * IGNORE the option activity itself. The option activity is just metadata about
+ * why the stock transaction happened, but the stock transaction is what actually
+ * changes the position.
+ *
+ * @param {Array} activities - Array of normalized activities
+ * @returns {Array} Filtered activities with option activities removed
+ */
+function filterOutOptionActivities(activities) {
+  // Filter out option exercise/assignment/expiration activities
+  // Keep BUY/SELL activities (even if they're from option exercises)
+  const filtered = activities.filter((activity) => {
+    const type = String(activity.type || "").toUpperCase();
+
+    // Filter out option activities - we only care about the resulting BUY/SELL
+    if (
+      type === "OPTIONEXERCISE" ||
+      type === "OPTIONASSIGNMENT" ||
+      type === "OPTIONEXPIRATION"
+    ) {
+      const symbol = extractSymbol(activity);
+      console.warn(
+        `Ignoring ${type} activity for ${symbol || "N/A"} on ${
+          activity.date_only || "unknown date"
+        } - only processing resulting BUY/SELL transactions`
+      );
+      return false; // Exclude option activities
+    }
+
+    return true; // Keep all other activities (including BUY/SELL from option exercises)
+  });
+
+  const removed = activities.length - filtered.length;
+  if (removed > 0) {
+    console.log(
+      `Removed ${removed} option exercise/assignment/expiration activity(ies) - only processing resulting BUY/SELL transactions`
+    );
+  }
+
+  return filtered;
+}
+
+/**
  * Groups activities by date
  *
  * @param {Array} activities - Array of normalized activities
@@ -218,12 +274,20 @@ function computeUnitAdjustment(activity) {
     return units; // Use the sign as provided
   }
 
+  // Option activities are now filtered out before reaching this function
+  // (see filterOutOptionActivities), so this should never be reached.
+  // But keep it as a safety fallback in case filtering is bypassed.
   if (
     type === "OPTIONASSIGNMENT" ||
     type === "OPTIONEXERCISE" ||
     type === "OPTIONEXPIRATION"
   ) {
-    return -Math.abs(units);
+    // Option activities should be filtered out, but if they reach here, ignore them
+    // (return 0) since we only process the resulting BUY/SELL transactions
+    console.warn(
+      `Option activity ${type} reached computeUnitAdjustment - should have been filtered out. Ignoring.`
+    );
+    return 0;
   }
 
   if (type === "ADJUSTMENT") {
@@ -237,7 +301,7 @@ function computeUnitAdjustment(activity) {
 
 /**
  * Applies stock splits to positions for a given date
- * 
+ *
  * @param {Object} params - Parameters object
  * @param {string} params.date - Date in YYYY-MM-DD format
  * @param {Object} params.positions - Current positions map { symbol: units }
@@ -266,7 +330,7 @@ function applyStockSplitsForDate({ date, positions, splitsBySymbol }) {
 
 /**
  * Loads stock splits from database for given symbols and date range
- * 
+ *
  * @param {Array<string>} symbols - Array of symbols to load splits for
  * @param {Date} startDate - Start date
  * @param {Date} endDate - End date
@@ -286,9 +350,11 @@ async function loadStockSplits(symbols, startDate, endDate, databaseUrl) {
     const splitsBySymbol = new Map();
 
     // Query for all symbols at once
-    const corporateActions = await corporateActionsCollection.find({
-      symbol: { $in: symbols },
-    }).toArray();
+    const corporateActions = await corporateActionsCollection
+      .find({
+        symbol: { $in: symbols },
+      })
+      .toArray();
 
     for (const action of corporateActions) {
       if (!action.splits || !Array.isArray(action.splits)) {
@@ -328,13 +394,17 @@ async function loadStockSplits(symbols, startDate, endDate, databaseUrl) {
  *
  * This function processes activities to create a time series of daily position snapshots.
  * It tracks units held for each security (stock, ETF, bond, crypto, etc.) across all dates.
- * Stock splits are automatically applied when they occur.
+ *
+ * NOTE: Stock splits are NOT currently applied in the unified approach. The `applySplits`
+ * parameter is accepted for backward compatibility but will log a warning if set to true.
+ * To get split-adjusted positions, you would need to apply splits manually after calling
+ * this function, or use the old implementation (which has been removed).
  *
  * @param {Object} opts - Options object
  * @param {Array} opts.activities - Array of activity objects from SnapTrade API (for one account)
  * @param {Date|string} opts.endDate - End date for the series (defaults to last activity date or today)
- * @param {string} opts.databaseUrl - Optional database URL for loading stock splits
- * @param {boolean} opts.applySplits - Whether to apply stock splits (default: true)
+ * @param {string} opts.databaseUrl - Optional database URL (currently unused, kept for backward compatibility)
+ * @param {boolean} opts.applySplits - Whether to apply stock splits (default: true, but currently not implemented)
  * @returns {Promise<Array>} Array of objects with { date, positions } for each day
  *                  where positions is a map of symbol -> units
  */
@@ -345,132 +415,66 @@ export async function buildDailyUnitsSeries(opts = {}) {
     return [];
   }
 
+  // Warn if splits are requested but not supported
+  if (applySplits) {
+    console.warn(
+      "⚠️  Stock splits are not currently supported in the unified timeseries approach. " +
+        "Positions will be returned without split adjustments. " +
+        "This may cause incorrect portfolio calculations when stock splits occur."
+    );
+  }
+
+  // Step 0: Deduplicate activities by activityId to prevent double counting
+  const seenActivityIds = new Set();
+  const deduplicatedActivities = activities.filter((activity) => {
+    const activityId = activity.activityId || activity.id;
+    if (!activityId) {
+      // Keep activities without IDs (shouldn't happen, but handle gracefully)
+      return true;
+    }
+    if (seenActivityIds.has(activityId)) {
+      console.warn(
+        `Duplicate activity detected and removed: ${activityId} (type: ${activity.type})`
+      );
+      return false;
+    }
+    seenActivityIds.add(activityId);
+    return true;
+  });
+
+  if (deduplicatedActivities.length !== activities.length) {
+    console.log(
+      `Removed ${
+        activities.length - deduplicatedActivities.length
+      } duplicate activities`
+    );
+  }
+
   // Step 1: Normalize activities (chronological, date-only)
-  const normalized = normalizeAndSortActivities(activities);
+  const normalized = normalizeAndSortActivities(deduplicatedActivities);
 
   if (normalized.length === 0) {
     return [];
   }
 
-  // Step 2: Filter to unit-related activities
-  const unitActivities = filterUnitRelatedActivities(normalized);
-
-  if (unitActivities.length === 0) {
-    console.warn(
-      "No unit-related activities found. Returning empty series."
-    );
-    return [];
-  }
-
-  // Step 3: Determine the date range
-  const firstActivity = unitActivities[0];
-  const lastActivity = unitActivities[unitActivities.length - 1];
-
-  const startDate = firstActivity.date_only;
-  if (!startDate) {
+  // Step 2: Use unified approach to build units time series
+  const minDate = getMinDate(normalized);
+  if (!minDate) {
     throw new Error("Cannot determine start date from activities");
   }
 
-  const lastActivityDate = lastActivity.date_only;
-  const endDateStr = endDate
-    ? formatDateToYYYYMMDD(endDate)
-    : lastActivityDate || formatDateToYYYYMMDD(new Date());
+  const today = endDate ? new Date(endDate) : new Date();
+  today.setHours(0, 0, 0, 0);
 
-  // Build all calendar dates
-  const allDates = generateDateRange(startDate, endDateStr);
+  // Create date mapping and build cash/units time series
+  const dateMapping = createDateMapping(minDate, today);
+  buildCashTimeSeries(normalized, dateMapping);
 
-  // Step 4: Group unit activities by date
-  const activitiesByDate = groupActivitiesByDate(unitActivities);
-
-  // Step 4.5: Load stock splits if enabled
-  let splitsBySymbol = new Map();
-  if (applySplits) {
-    // Collect all unique symbols from activities
-    const allSymbols = new Set();
-    unitActivities.forEach((activity) => {
-      const sym = extractSymbol(activity);
-      if (sym) {
-        allSymbols.add(sym);
-      }
-    });
-
-    if (allSymbols.size > 0) {
-      const startDateObj = new Date(startDate);
-      const endDateObj = new Date(endDateStr);
-      splitsBySymbol = await loadStockSplits(
-        Array.from(allSymbols),
-        startDateObj,
-        endDateObj,
-        databaseUrl
-      );
-    }
-  }
-
-  // Step 5: Initialize position state
-  let positions = {}; // security -> units held
-  const dates = [];
-  const positionsSnapshots = [];
-
-  // Step 6: Loop through each date and update positions
-  for (const date of allDates) {
-    const dateKey = formatDateToYYYYMMDD(date);
-
-    // 6.1: Start-of-day positions (copy from yesterday)
-    let positionsToday = { ...positions };
-
-    // 6.1.5: Apply stock splits at the start of the day (before processing activities)
-    if (applySplits && splitsBySymbol.size > 0) {
-      positionsToday = applyStockSplitsForDate({
-        date: dateKey,
-        positions: positionsToday,
-        splitsBySymbol,
-      });
-    }
-
-    // 6.2: Get today's unit activities
-    const todayActivities = activitiesByDate.get(dateKey) || [];
-
-    // 6.3: For each activity, adjust units
-    for (const activity of todayActivities) {
-      const sym = extractSymbol(activity);
-      if (!sym) {
-        continue; // Shouldn't happen due to filter, but safety check
-      }
-
-      // Ensure we have a starting value
-      if (!(sym in positionsToday)) {
-        positionsToday[sym] = 0;
-      }
-
-      // Compute unit adjustment based on activity type
-      const adjustment = computeUnitAdjustment(activity);
-      positionsToday[sym] += adjustment;
-
-      // Note: Negative positions are valid when units are sold (per SnapTrade docs)
-      // We allow negative positions to represent short positions or overselling scenarios
-    }
-
-    // 6.4: End-of-day snapshot and roll forward
-    // Remove symbols with zero (or near-zero) units to keep snapshots clean
-    const cleanPositions = {};
-    for (const [sym, units] of Object.entries(positionsToday)) {
-      if (Math.abs(units) >= 1e-10) {
-        cleanPositions[sym] = units;
-      }
-    }
-
-    // Update positions for next day
-    positions = cleanPositions;
-
-    // Store snapshot
-    dates.push(dateKey);
-    positionsSnapshots.push({ ...cleanPositions });
-  }
-
-  // Step 7: Build the final result
-  return dates.map((date, index) => ({
-    date,
-    positions: positionsSnapshots[index],
+  // Extract units from date mapping and convert to array format
+  const sortedDates = Object.keys(dateMapping).sort();
+  return sortedDates.map((dateStr) => ({
+    date: dateStr,
+    positions: dateMapping[dateStr]?.units || {},
   }));
 }
 
@@ -486,7 +490,12 @@ export async function buildDailyUnitsSeries(opts = {}) {
  * @returns {Promise<Object>} Map of accountId → units series array
  */
 export async function buildDailyUnitsSeriesForAccounts(opts = {}) {
-  const { activitiesByAccount, endDate, databaseUrl, applySplits = true } = opts;
+  const {
+    activitiesByAccount,
+    endDate,
+    databaseUrl,
+    applySplits = true,
+  } = opts;
 
   if (!activitiesByAccount || typeof activitiesByAccount !== "object") {
     throw new Error("activitiesByAccount must be an object/map");
@@ -515,4 +524,3 @@ export async function buildDailyUnitsSeriesForAccounts(opts = {}) {
 
   return results;
 }
-

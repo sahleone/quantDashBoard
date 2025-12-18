@@ -1,37 +1,46 @@
 .line-graph {
-  margin: 0 auto;
-  background: var(--bg-card);
+  margin: 0;
+  background: transparent;
   color: var(--text-primary);
-  border-radius: 12px;
-  padding: 1.5rem;
+  border-radius: 0;
+  padding: 0;
   width: 100%;
   height: 100%;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   box-sizing: border-box;
+  min-height: 500px;
 }
 
 .line-graph h2 {
-  text-align: right;
-  color: var(--highlight);
-  margin: 0 0 1rem 0;
-  flex-shrink: 0;
+  display: none;
 }
 
 .line-graph-container {
-  background: var(--bg-dark);
-  border-radius: 8px;
-  padding: 1rem;
+  background: transparent;
+  border-radius: 0;
+  padding: 0;
   flex: 1;
   min-height: 0;
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  width: 100%;
+  height: 100%;
+  position: relative;
 }
 
 .line-graph-container > div {
   flex: 1;
   min-height: 0;
   overflow: hidden;
+  width: 100%;
+  height: 100%;
+  position: relative;
+}
+
+.line-graph-container canvas {
+  width: 100% !important;
+  height: 100% !important;
 }

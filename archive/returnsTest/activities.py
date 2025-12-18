@@ -23,10 +23,12 @@ def signed_units(act: dict) -> float:
     - BUY  : units > 0  (cash out)
     - SELL : units < 0  (cash in)
     - REI  : dividend reinvestment (treated as BUY of shares)
+    - OPTIONEXPIRATION : closes position (negative units)
 
     We normalise:
       - SELL -> negative units
       - BUY/REI -> positive units
+      - OPTIONEXPIRATION -> negative units (closes position)
       - other types -> 0 (no position change)
     """
     t = str(act.get("type", "")).upper()
@@ -36,6 +38,9 @@ def signed_units(act: dict) -> float:
         return -abs(u)
     elif t in ("BUY", "REI"):
         return abs(u)
+    elif t == "OPTIONEXPIRATION":
+        # Option expiration closes the position (negative units)
+        return -abs(u)
     else:
         return 0.0
 
@@ -59,6 +64,7 @@ def build_daily_positions_and_stock_value(activities):
         "REI",
         "OPTIONASSIGNMENT",
         "OPTIONEXERCISE",
+        "OPTIONEXPIRATION",
     }
 
     for activity in activities:
@@ -150,18 +156,50 @@ def build_daily_positions_and_stock_value(activities):
     if not tickers:
         raise ValueError("No tickers found in positions_df")
 
-    min_date, max_date = positions_df.index.min(), positions_df.index.max()
+    # Filter out option symbols (contain spaces) before fetching prices
+    # Option symbols like "SPY   250422C00515000" will cause yfinance to fail
+    def is_option_symbol(symbol):
+        """Check if symbol is an option (contains spaces)"""
+        return " " in str(symbol) and symbol.strip() != symbol.replace(" ", "")
 
-    price_df = yf.download(
-        tickers=tickers,
-        start=min_date,
-        end=max_date + timedelta(days=1),
-        progress=False,
-        auto_adjust=False,
-    )["Close"]
+    equity_tickers = [t for t in tickers if not is_option_symbol(t)]
+    option_tickers = [t for t in tickers if is_option_symbol(t)]
 
-    if isinstance(price_df, pd.Series):
-        price_df = price_df.to_frame(name=tickers[0])
+    if not equity_tickers:
+        # If only options, create empty price dataframe with same index
+        price_df = pd.DataFrame(index=positions_df.index, columns=tickers)
+        price_df = price_df.fillna(0.0)
+    else:
+        min_date, max_date = positions_df.index.min(), positions_df.index.max()
+
+        try:
+            price_df = yf.download(
+                tickers=equity_tickers,
+                start=min_date,
+                end=max_date + timedelta(days=1),
+                progress=False,
+                auto_adjust=False,
+            )["Close"]
+        except Exception as e:
+            raise ValueError(
+                f"Failed to download prices from yfinance: {e}. "
+                f"Tickers: {equity_tickers[:10]}{'...' if len(equity_tickers) > 10 else ''}"
+            ) from e
+
+        # Add option columns with price 0 (options not priced)
+        if option_tickers:
+            for opt_ticker in option_tickers:
+                price_df[opt_ticker] = 0.0
+
+        # Ensure all original tickers are present (in case some equity tickers failed)
+        for ticker in tickers:
+            if ticker not in price_df.columns:
+                price_df[ticker] = 0.0
+
+        # Handle case where yfinance returns a Series (single ticker)
+        if isinstance(price_df, pd.Series):
+            # Use the first equity ticker as column name (not tickers[0] which might be an option)
+            price_df = price_df.to_frame(name=equity_tickers[0] if equity_tickers else tickers[0])
 
     price_df = price_df.reindex(positions_df.index).ffill()
 

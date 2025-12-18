@@ -1,7 +1,8 @@
-import { useState, useEffect, useContext, useMemo } from "react";
+import { useState, useEffect, useContext } from "react";
 import { useNavigate } from "react-router-dom";
 import UserContext from "../../context/UserContext";
 import { authenticatedGet } from "../../utils/apiClient";
+import "./Portfolio.css";
 
 const formatCurrency = (value, currency = "USD") => {
   if (value === null || value === undefined) {
@@ -42,36 +43,22 @@ const formatNumber = (value) => {
   }).format(numericValue);
 };
 
-const formatPercent = (value) => {
-  if (value === null || value === undefined) {
-    return "—";
-  }
-
-  const numericValue = Number(value);
-  if (!Number.isFinite(numericValue)) {
-    return "—";
-  }
-
-  return new Intl.NumberFormat("en-US", {
-    style: "percent",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(numericValue);
-};
-
 function Portfolio() {
   const { userId } = useContext(UserContext);
   const navigate = useNavigate();
-  const [portfolio, setPortfolio] = useState({ accounts: [], summary: null });
+  const [accounts, setAccounts] = useState([]);
+  const [accountBalances, setAccountBalances] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [expandedAccountId, setExpandedAccountId] = useState(null);
-  const [optionsByAccount, setOptionsByAccount] = useState({});
-  const [optionsLoadingByAccount, setOptionsLoadingByAccount] = useState({});
+  const [accountPositions, setAccountPositions] = useState({});
+  const [accountOptions, setAccountOptions] = useState({});
+  const [loadingPositions, setLoadingPositions] = useState({});
 
   useEffect(() => {
-    const fetchPortfolio = async () => {
+    const fetchPortfolioData = async () => {
       if (!userId) {
+        setLoading(false);
         return;
       }
 
@@ -79,252 +66,203 @@ function Portfolio() {
         setLoading(true);
         setError(null);
 
-        const response = await authenticatedGet(
-          "http://localhost:3000/api/snaptrade/portfolio"
-        );
+        // Fetch accounts from DB
+        const accountsResponse = await authenticatedGet("/api/accounts");
+        const accountsList = accountsResponse?.data?.accounts || [];
+        setAccounts(accountsList);
 
-        setPortfolio(response.data || { accounts: [], summary: null });
-      } catch (fetchError) {
-        console.error("Error fetching portfolio:", fetchError);
+        // Calculate portfolio balance for each account
+        const balances = {};
 
-        const status = fetchError?.response?.status;
+        for (const account of accountsList) {
+          let totalValue = 0;
+          let cashValue = 0;
+          let positionsValue = 0;
+          let optionsValue = 0;
 
-        if (status === 404) {
-          setPortfolio({ accounts: [], summary: null });
-          setError(null);
-        } else if (status === 403) {
-          setError("You do not have access to this portfolio.");
-          setPortfolio({ accounts: [], summary: null });
-        } else {
-          setError("Unable to load portfolio positions right now.");
-          setPortfolio({ accounts: [], summary: null });
+          // Get cash from balances
+          try {
+            const balancesRes = await authenticatedGet(
+              `/api/accounts/balances?accountId=${encodeURIComponent(
+                account.accountId
+              )}`
+            );
+            const balancesArray =
+              balancesRes?.data?.balances || balancesRes?.data || [];
+
+            if (Array.isArray(balancesArray)) {
+              cashValue = balancesArray.reduce((sum, balance) => {
+                return sum + Number(balance.cash || 0);
+              }, 0);
+            } else if (balancesRes?.data?.totals?.cash) {
+              cashValue = Number(balancesRes.data.totals.cash || 0);
+            }
+          } catch (balanceErr) {
+            console.warn(
+              `Could not fetch balances for account ${account.accountId}:`,
+              balanceErr
+            );
+          }
+
+          // Get positions and calculate market value
+          try {
+            const positionsRes = await authenticatedGet(
+              `/api/snaptrade/positions?accountId=${encodeURIComponent(
+                account.accountId
+              )}`
+            );
+            const positions = positionsRes?.data?.positions || [];
+
+            for (const position of positions) {
+              const units = Number(position.units || 0);
+              const price = Number(position.price || 0);
+              const marketValue = units * price;
+
+              if (Number.isFinite(marketValue) && marketValue > 0) {
+                // Check if it's cash equivalent
+                if (position.cashEquivalent || position.cash_equivalent) {
+                  cashValue += marketValue;
+                } else {
+                  positionsValue += marketValue;
+                }
+              } else if (position.marketValue) {
+                // Use marketValue if provided directly
+                const mv = Number(position.marketValue);
+                if (Number.isFinite(mv) && mv > 0) {
+                  if (position.cashEquivalent || position.cash_equivalent) {
+                    cashValue += mv;
+                  } else {
+                    positionsValue += mv;
+                  }
+                }
+              }
+            }
+          } catch (positionsErr) {
+            console.warn(
+              `Could not fetch positions for account ${account.accountId}:`,
+              positionsErr
+            );
+          }
+
+          // Get options and calculate market value
+          try {
+            const optionsRes = await authenticatedGet(
+              `/api/snaptrade/options/holdings?accountId=${encodeURIComponent(
+                account.accountId
+              )}`
+            );
+            const optionPositions =
+              optionsRes?.data?.holdings || optionsRes?.data || [];
+
+            if (Array.isArray(optionPositions)) {
+              for (const option of optionPositions) {
+                const apiMarketValue = Number(
+                  option.market_value || option.marketValue || 0
+                );
+
+                if (apiMarketValue > 0) {
+                  optionsValue += Math.abs(apiMarketValue);
+                  continue;
+                }
+
+                const price = Number(option.price || 0);
+                const units = Number(option.units || 0);
+
+                if (price > 0 && units !== 0) {
+                  const isMiniOption =
+                    option.symbol?.option_symbol?.is_mini_option ||
+                    option.is_mini_option ||
+                    false;
+                  const contractMultiplier = isMiniOption ? 10 : 100;
+                  const optionMarketValue =
+                    price * Math.abs(units) * contractMultiplier;
+                  optionsValue += optionMarketValue;
+                }
+              }
+            }
+          } catch (optionsErr) {
+            console.warn(
+              `Could not fetch option positions for account ${account.accountId}:`,
+              optionsErr
+            );
+          }
+
+          totalValue = cashValue + positionsValue + optionsValue;
+
+          // Extract currency string - handle both string and object cases
+          let currencyStr = "USD";
+          if (typeof account.currency === "string") {
+            currencyStr = account.currency;
+          } else if (account.currency?.code) {
+            currencyStr = account.currency.code;
+          }
+
+          balances[account.accountId] = {
+            totalValue,
+            cashValue,
+            positionsValue,
+            optionsValue,
+            currency: currencyStr,
+          };
         }
+
+        setAccountBalances(balances);
+      } catch (err) {
+        console.error("Error fetching portfolio data:", err);
+        setError(
+          err?.response?.data?.error?.message ||
+            err?.message ||
+            "Failed to load portfolio data"
+        );
       } finally {
         setLoading(false);
       }
     };
 
-    fetchPortfolio();
+    fetchPortfolioData();
   }, [userId]);
 
-  // Fetch options for an account when expanded. If there are no DB entries for
-  // today the server will call SnapTrade and populate the DB before returning.
+  // Fetch positions and options when account is expanded
   useEffect(() => {
-    const fetchOptionsForAccount = async (accountId) => {
+    const fetchAccountDetails = async (accountId) => {
       if (!accountId) return;
-      setOptionsLoadingByAccount((s) => ({ ...s, [accountId]: true }));
+
+      setLoadingPositions((prev) => ({ ...prev, [accountId]: true }));
+
       try {
-        const resp = await authenticatedGet(
-          `http://localhost:3000/api/snaptrade/options/dbholdings?accountId=${encodeURIComponent(
-            accountId
-          )}`
+        // Fetch positions
+        const positionsRes = await authenticatedGet(
+          `/api/snaptrade/positions?accountId=${encodeURIComponent(accountId)}`
         );
-        const holdings = resp?.data?.holdings || [];
-        setOptionsByAccount((s) => ({ ...s, [accountId]: holdings }));
+        const positions = positionsRes?.data?.positions || [];
+        setAccountPositions((prev) => ({ ...prev, [accountId]: positions }));
+
+        // Fetch options
+        try {
+          const optionsRes = await authenticatedGet(
+            `http://localhost:3000/api/snaptrade/options/dbholdings?accountId=${encodeURIComponent(
+              accountId
+            )}`
+          );
+          const options = optionsRes?.data?.holdings || [];
+          setAccountOptions((prev) => ({ ...prev, [accountId]: options }));
+        } catch (optionsErr) {
+          console.warn("Error fetching options:", optionsErr);
+          setAccountOptions((prev) => ({ ...prev, [accountId]: [] }));
+        }
       } catch (err) {
-        console.error("Error fetching options for account", accountId, err);
-        setOptionsByAccount((s) => ({ ...s, [accountId]: [] }));
+        console.error("Error fetching account details:", err);
+        setAccountPositions((prev) => ({ ...prev, [accountId]: [] }));
+        setAccountOptions((prev) => ({ ...prev, [accountId]: [] }));
       } finally {
-        setOptionsLoadingByAccount((s) => ({ ...s, [accountId]: false }));
+        setLoadingPositions((prev) => ({ ...prev, [accountId]: false }));
       }
     };
 
     if (expandedAccountId) {
-      // Only fetch if we don't already have data for this account today
-      const existing = optionsByAccount[expandedAccountId];
-      if (!existing) {
-        fetchOptionsForAccount(expandedAccountId);
-      }
+      fetchAccountDetails(expandedAccountId);
     }
-  }, [expandedAccountId, optionsByAccount]);
-
-  const flattenedPositions = useMemo(() => {
-    if (!portfolio?.accounts?.length) {
-      return [];
-    }
-
-    return portfolio.accounts.flatMap((account) =>
-      (account.positions || []).map((position) => ({
-        accountId: account.accountId,
-        accountName: account.accountName,
-        currency: position.currency || account.currency || "USD",
-        symbol: position.symbol,
-        name: position.name,
-        units: position.units ?? position.lots,
-        costBasis: position.costBasis,
-        marketValue: position.marketValue,
-        unrealizedPnl: position.unrealizedPnl,
-        averagePrice: position.averagePrice,
-        marketPrice: position.marketPrice,
-      }))
-    );
-  }, [portfolio]);
-
-  const accountSummaries = useMemo(() => {
-    if (!portfolio?.accounts?.length) return [];
-
-    return portfolio.accounts.map((account) => {
-      const positions = account.positions || [];
-
-      const totalMarketValue = positions.reduce((sum, p) => {
-        const v = Number(p?.marketValue ?? 0);
-        return sum + (Number.isFinite(v) ? v : 0);
-      }, 0);
-
-      const totalCostBasis = positions.reduce((sum, p) => {
-        const v = Number(p?.costBasis ?? 0);
-        return sum + (Number.isFinite(v) ? v : 0);
-      }, 0);
-
-      const unrealizedPnl = positions.reduce((sum, p) => {
-        const v = Number(
-          p?.unrealizedPnl ??
-            Number(p?.marketValue ?? 0) - Number(p?.costBasis ?? 0)
-        );
-        return sum + (Number.isFinite(v) ? v : 0);
-      }, 0);
-
-      return {
-        accountId: account.accountId,
-        accountName: account.accountName || account.accountId,
-        currency: account.currency || "USD",
-        totalMarketValue,
-        totalCostBasis,
-        unrealizedPnl,
-        positions,
-      };
-    });
-  }, [portfolio]);
-
-  const toggleAccount = (accountId) => {
-    setExpandedAccountId((prev) => (prev === accountId ? null : accountId));
-  };
-
-  // Reusable positions table to avoid duplicate table markup
-  const PositionsTable = ({
-    positions,
-    currency = "USD",
-    showAccount = false,
-  }) => {
-    return (
-      <div className="portfolio-table-wrapper">
-        <table className="portfolio-table">
-          <thead>
-            <tr>
-              {showAccount && <th>Account</th>}
-              <th>Symbol</th>
-              <th>Name</th>
-              <th>Units</th>
-              <th>Avg Price</th>
-              <th>Market Price</th>
-              <th>Market Value</th>
-              <th>Unrealized P/L</th>
-              <th>Return %</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(positions || []).map((position) => {
-              const units = position.units ?? position.lots ?? 0;
-              const pnlClass =
-                position.unrealizedPnl > 0
-                  ? "pnl-positive"
-                  : position.unrealizedPnl < 0
-                  ? "pnl-negative"
-                  : "";
-
-              const returnRatio =
-                position.costBasis && position.costBasis !== 0
-                  ? (position.marketValue - position.costBasis) /
-                    position.costBasis
-                  : null;
-
-              const cellCurrency = position.currency || currency || "USD";
-
-              return (
-                <tr key={`${position.accountId ?? "acct"}-${position.symbol}`}>
-                  {showAccount && (
-                    <td className="account-cell">
-                      {position.accountName ?? position.accountId}
-                    </td>
-                  )}
-                  <td>{position.symbol}</td>
-                  <td>{position.name}</td>
-                  <td>{formatNumber(units)}</td>
-                  <td>{formatCurrency(position.averagePrice, cellCurrency)}</td>
-                  <td>{formatCurrency(position.marketPrice, cellCurrency)}</td>
-                  <td>{formatCurrency(position.marketValue, cellCurrency)}</td>
-                  <td className={pnlClass}>
-                    {formatCurrency(position.unrealizedPnl, cellCurrency)}
-                  </td>
-                  <td className={pnlClass}>
-                    {returnRatio !== null ? formatPercent(returnRatio) : "—"}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    );
-  };
-
-  const OptionsTable = ({ options = [], currency = "USD" }) => {
-    return (
-      <div className="portfolio-table-wrapper">
-        <table className="portfolio-table">
-          <thead>
-            <tr>
-              <th>Symbol</th>
-              <th>Type</th>
-              <th>Strike</th>
-              <th>Exp</th>
-              <th>Units</th>
-              <th>Avg Price</th>
-              <th>Price</th>
-              <th>Market Value</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(options || []).map((opt, idx) => {
-              const ticker =
-                opt?.symbol?.option_symbol?.ticker ||
-                opt?.symbol?.option_symbol?.underlying_symbol?.symbol ||
-                "";
-              const type = opt?.symbol?.option_symbol?.option_type || "";
-              const strike = opt?.symbol?.option_symbol?.strike_price ?? null;
-              const exp = opt?.symbol?.option_symbol?.expiration_date || "";
-              const units = Number(opt?.units ?? 0);
-              const avg =
-                opt?.average_purchase_price ??
-                opt?.averagePurchasePrice ??
-                null;
-              const price = opt?.price ?? null;
-              const marketValue = price !== null ? price * units : null;
-
-              const cellCurrency = opt?.currency?.code || currency || "USD";
-
-              return (
-                <tr key={`${opt._id ?? idx}-${ticker}`}>
-                  <td>{ticker}</td>
-                  <td>{type}</td>
-                  <td>{strike !== null ? strike : "—"}</td>
-                  <td>{exp}</td>
-                  <td>{formatNumber(units)}</td>
-                  <td>{formatCurrency(avg, cellCurrency)}</td>
-                  <td>{formatCurrency(price, cellCurrency)}</td>
-                  <td>
-                    {marketValue !== null
-                      ? formatCurrency(marketValue, cellCurrency)
-                      : "—"}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    );
-  };
+  }, [expandedAccountId]);
 
   // Show loading or redirect if not authenticated
   if (!userId) {
@@ -352,148 +290,532 @@ function Portfolio() {
           <div className="portfolio-status portfolio-status--error">
             {error}
           </div>
-        ) : flattenedPositions.length === 0 ? (
-          <div className="portfolio-status">No positions available.</div>
+        ) : accounts.length === 0 ? (
+          <div className="portfolio-status">
+            No accounts available. Connect a brokerage account to view your
+            portfolio.
+          </div>
         ) : (
           <div>
             {expandedAccountId ? (
-              // Single-account holdings view with back button
+              // Expanded account view
               (() => {
-                const acc = accountSummaries.find(
+                const account = accounts.find(
                   (a) => a.accountId === expandedAccountId
                 );
+                if (!account) return null;
 
-                if (!acc) return null;
+                // Extract currency string for fallback
+                let fallbackCurrency = "USD";
+                if (typeof account.currency === "string") {
+                  fallbackCurrency = account.currency;
+                } else if (account.currency?.code) {
+                  fallbackCurrency = account.currency.code;
+                }
 
-                const pnlColor =
-                  acc.unrealizedPnl > 0
-                    ? "#0a8a00"
-                    : acc.unrealizedPnl < 0
-                    ? "#d32f2f"
-                    : "#333";
+                const balance = accountBalances[account.accountId] || {
+                  totalValue: 0,
+                  cashValue: 0,
+                  positionsValue: 0,
+                  optionsValue: 0,
+                  currency: fallbackCurrency,
+                };
+                const positions = accountPositions[account.accountId] || [];
+                const options = accountOptions[account.accountId] || [];
+                const isLoading = loadingPositions[account.accountId];
 
                 return (
                   <div>
-                    <div
+                    <button
+                      type="button"
+                      onClick={() => setExpandedAccountId(null)}
                       style={{
-                        display: "flex",
-                        alignItems: "center",
-                        marginBottom: 12,
+                        marginBottom: "20px",
+                        padding: "8px 16px",
+                        borderRadius: "6px",
+                        border: "1px solid #ddd",
+                        background: "#fff",
+                        cursor: "pointer",
                       }}
                     >
-                      <button
-                        type="button"
-                        onClick={() => setExpandedAccountId(null)}
-                        style={{
-                          marginRight: 12,
-                          padding: "8px 12px",
-                          borderRadius: 6,
-                          border: "1px solid #ddd",
-                          background: "#fff",
-                          cursor: "pointer",
-                        }}
-                      >
-                        ← Back
-                      </button>
+                      ← Back to Accounts
+                    </button>
+
+                    <div className="account-card">
+                      <div>
+                        <div className="account-card-name">
+                          {account.accountName || account.accountId}
+                        </div>
+                        <div className="account-card-id">
+                          {account.accountId}
+                        </div>
+                        {account.institutionName && (
+                          <div className="account-card-institution">
+                            {account.institutionName}
+                          </div>
+                        )}
+                      </div>
 
                       <div>
-                        <div style={{ fontSize: 18, fontWeight: 700 }}>
-                          {acc.accountName}
+                        <div className="account-card-value">
+                          {formatCurrency(balance.totalValue, balance.currency)}
                         </div>
-                        <div style={{ fontSize: 13, color: "#666" }}>
-                          {formatCurrency(acc.totalMarketValue, acc.currency)} •{" "}
-                          <span style={{ color: pnlColor }}>
-                            {formatCurrency(acc.unrealizedPnl, acc.currency)}
-                          </span>
+                        <div className="account-card-breakdown">
+                          {balance.positionsValue > 0 && (
+                            <span>
+                              Positions:{" "}
+                              {formatCurrency(
+                                balance.positionsValue,
+                                balance.currency
+                              )}
+                            </span>
+                          )}
+                          {balance.cashValue > 0 && (
+                            <span>
+                              Cash:{" "}
+                              {formatCurrency(
+                                balance.cashValue,
+                                balance.currency
+                              )}
+                            </span>
+                          )}
+                          {balance.optionsValue > 0 && (
+                            <span>
+                              Options:{" "}
+                              {formatCurrency(
+                                balance.optionsValue,
+                                balance.currency
+                              )}
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>
 
-                    {/** Options table appears above other holdings when present */}
-                    {optionsLoadingByAccount[acc.accountId] ? (
-                      <div style={{ marginBottom: 12 }}>Loading options...</div>
+                    {isLoading ? (
+                      <div className="portfolio-status">
+                        Loading account details...
+                      </div>
                     ) : (
-                      (optionsByAccount[acc.accountId] || []).length > 0 && (
-                        <div style={{ marginBottom: 12 }}>
-                          <div
-                            style={{
-                              fontSize: 14,
-                              fontWeight: 600,
-                              marginBottom: 8,
-                            }}
-                          >
-                            Options
-                          </div>
-                          <OptionsTable
-                            options={optionsByAccount[acc.accountId]}
-                            currency={acc.currency}
-                          />
-                        </div>
-                      )
-                    )}
+                      <>
+                        {options.length > 0 && (
+                          <div style={{ marginTop: "24px" }}>
+                            <h3>Options</h3>
+                            <div className="portfolio-table-wrapper">
+                              <table className="portfolio-table">
+                                <thead>
+                                  <tr>
+                                    <th>Symbol</th>
+                                    <th>Type</th>
+                                    <th>Strike</th>
+                                    <th>Exp</th>
+                                    <th>Units</th>
+                                    <th>Price</th>
+                                    <th>Market Value</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {options.map((opt, idx) => {
+                                    // Extract ticker - ensure it's a string
+                                    let ticker = "";
+                                    if (
+                                      typeof opt?.symbol?.option_symbol
+                                        ?.ticker === "string"
+                                    ) {
+                                      ticker = opt.symbol.option_symbol.ticker;
+                                    } else if (
+                                      typeof opt?.symbol?.option_symbol
+                                        ?.underlying_symbol?.symbol === "string"
+                                    ) {
+                                      ticker =
+                                        opt.symbol.option_symbol
+                                          .underlying_symbol.symbol;
+                                    } else if (
+                                      typeof opt?.symbol?.option_symbol
+                                        ?.ticker !== "undefined"
+                                    ) {
+                                      ticker = String(
+                                        opt.symbol.option_symbol.ticker
+                                      );
+                                    }
 
-                    <PositionsTable
-                      positions={acc.positions}
-                      currency={acc.currency}
-                    />
+                                    // Extract type - ensure it's a string
+                                    let type = "";
+                                    if (
+                                      typeof opt?.symbol?.option_symbol
+                                        ?.option_type === "string"
+                                    ) {
+                                      type =
+                                        opt.symbol.option_symbol.option_type;
+                                    } else if (
+                                      typeof opt?.symbol?.option_symbol
+                                        ?.option_type !== "undefined"
+                                    ) {
+                                      type = String(
+                                        opt.symbol.option_symbol.option_type
+                                      );
+                                    }
+
+                                    // Extract strike - ensure it's a number or null
+                                    let strike = null;
+                                    if (
+                                      opt?.symbol?.option_symbol
+                                        ?.strike_price != null
+                                    ) {
+                                      const strikeVal =
+                                        opt.symbol.option_symbol.strike_price;
+                                      strike =
+                                        typeof strikeVal === "number"
+                                          ? strikeVal
+                                          : Number(strikeVal);
+                                      if (isNaN(strike)) strike = null;
+                                    }
+
+                                    // Extract expiration - ensure it's a string
+                                    let exp = "";
+                                    if (
+                                      typeof opt?.symbol?.option_symbol
+                                        ?.expiration_date === "string"
+                                    ) {
+                                      exp =
+                                        opt.symbol.option_symbol
+                                          .expiration_date;
+                                    } else if (
+                                      opt?.symbol?.option_symbol
+                                        ?.expiration_date != null
+                                    ) {
+                                      exp = String(
+                                        opt.symbol.option_symbol.expiration_date
+                                      );
+                                    }
+
+                                    const units = Number(opt?.units ?? 0);
+                                    const price = opt?.price ?? null;
+                                    const marketValue =
+                                      price !== null ? price * units : null;
+
+                                    // Extract currency string - handle both string and object cases
+                                    let currencyStr = "USD";
+                                    if (typeof opt?.currency === "string") {
+                                      currencyStr = opt.currency;
+                                    } else if (opt?.currency?.code) {
+                                      currencyStr = opt.currency.code;
+                                    } else if (
+                                      typeof balance.currency === "string"
+                                    ) {
+                                      currencyStr = balance.currency;
+                                    } else if (balance.currency?.code) {
+                                      currencyStr = balance.currency.code;
+                                    }
+
+                                    // Ensure all string values are safe
+                                    const safeTicker = String(ticker || "—");
+                                    const safeType = String(type || "—");
+                                    const safeExp = String(exp || "—");
+
+                                    return (
+                                      <tr key={`opt-${idx}-${safeTicker}`}>
+                                        <td>{safeTicker}</td>
+                                        <td>{safeType}</td>
+                                        <td>
+                                          {strike !== null
+                                            ? String(strike)
+                                            : "—"}
+                                        </td>
+                                        <td>{safeExp}</td>
+                                        <td>{formatNumber(units)}</td>
+                                        <td>
+                                          {formatCurrency(price, currencyStr)}
+                                        </td>
+                                        <td>
+                                          {marketValue !== null
+                                            ? formatCurrency(
+                                                marketValue,
+                                                currencyStr
+                                              )
+                                            : "—"}
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        )}
+
+                        {positions.length > 0 && (
+                          <div style={{ marginTop: "24px" }}>
+                            <h3>Positions</h3>
+                            <div className="portfolio-table-wrapper">
+                              <table className="portfolio-table">
+                                <thead>
+                                  <tr>
+                                    <th>Symbol</th>
+                                    <th>Name</th>
+                                    <th>Units</th>
+                                    <th>Price</th>
+                                    <th>Market Value</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {positions.map((position, idx) => {
+                                    const units = Number(
+                                      position.units ?? position.lots ?? 0
+                                    );
+                                    const price = Number(position.price ?? 0);
+                                    const marketValue = units * price;
+
+                                    // Extract currency string - handle both string and object cases
+                                    let currencyStr = "USD";
+                                    if (typeof position.currency === "string") {
+                                      currencyStr = position.currency;
+                                    } else if (position.currency?.code) {
+                                      currencyStr = position.currency.code;
+                                    } else if (
+                                      typeof balance.currency === "string"
+                                    ) {
+                                      currencyStr = balance.currency;
+                                    } else if (balance.currency?.code) {
+                                      currencyStr = balance.currency.code;
+                                    }
+
+                                    // Extract symbol string - handle nested structure: position.symbol.symbol.symbol
+                                    // Based on SnapTrade API: symbol.symbol.symbol contains the actual ticker (e.g., "VAB.TO")
+                                    let symbolStr = "—";
+                                    if (typeof position.symbol === "string") {
+                                      symbolStr = position.symbol;
+                                    } else if (
+                                      position.symbol &&
+                                      typeof position.symbol === "object"
+                                    ) {
+                                      // Check nested structure: position.symbol.symbol.symbol (the actual ticker)
+                                      if (
+                                        position.symbol.symbol &&
+                                        typeof position.symbol.symbol ===
+                                          "object" &&
+                                        typeof position.symbol.symbol.symbol ===
+                                          "string" &&
+                                        position.symbol.symbol.symbol
+                                      ) {
+                                        symbolStr =
+                                          position.symbol.symbol.symbol;
+                                      } else if (
+                                        position.symbol.symbol &&
+                                        typeof position.symbol.symbol ===
+                                          "object" &&
+                                        typeof position.symbol.symbol
+                                          .raw_symbol === "string" &&
+                                        position.symbol.symbol.raw_symbol
+                                      ) {
+                                        symbolStr =
+                                          position.symbol.symbol.raw_symbol;
+                                      } else if (
+                                        typeof position.symbol.symbol ===
+                                          "string" &&
+                                        position.symbol.symbol
+                                      ) {
+                                        // Fallback: direct symbol.symbol as string
+                                        symbolStr = position.symbol.symbol;
+                                      } else if (
+                                        typeof position.symbol.raw_symbol ===
+                                          "string" &&
+                                        position.symbol.raw_symbol
+                                      ) {
+                                        symbolStr = position.symbol.raw_symbol;
+                                      }
+                                      // Never use ID as it's a UUID, not the symbol name
+                                    }
+
+                                    // Extract name - check nested structure: position.symbol.symbol.description
+                                    let nameStr = "—";
+                                    // First check direct name field
+                                    if (
+                                      typeof position.name === "string" &&
+                                      position.name
+                                    ) {
+                                      nameStr = position.name;
+                                    } else if (
+                                      position.symbol &&
+                                      typeof position.symbol === "object"
+                                    ) {
+                                      // Check nested structure: position.symbol.symbol.description
+                                      if (
+                                        position.symbol.symbol &&
+                                        typeof position.symbol.symbol ===
+                                          "object" &&
+                                        typeof position.symbol.symbol
+                                          .description === "string" &&
+                                        position.symbol.symbol.description
+                                      ) {
+                                        nameStr =
+                                          position.symbol.symbol.description;
+                                      } else if (
+                                        position.symbol.symbol &&
+                                        typeof position.symbol.symbol ===
+                                          "object" &&
+                                        typeof position.symbol.symbol.name ===
+                                          "string" &&
+                                        position.symbol.symbol.name
+                                      ) {
+                                        nameStr = position.symbol.symbol.name;
+                                      } else if (
+                                        typeof position.symbol.description ===
+                                          "string" &&
+                                        position.symbol.description
+                                      ) {
+                                        // Fallback: direct symbol.description
+                                        nameStr = position.symbol.description;
+                                      } else if (
+                                        typeof position.symbol.name ===
+                                          "string" &&
+                                        position.symbol.name
+                                      ) {
+                                        nameStr = position.symbol.name;
+                                      }
+                                    }
+                                    // If name is still empty, try position.name as object
+                                    if (
+                                      nameStr === "—" &&
+                                      position.name &&
+                                      typeof position.name === "object"
+                                    ) {
+                                      if (
+                                        typeof position.name.name ===
+                                          "string" &&
+                                        position.name.name
+                                      ) {
+                                        nameStr = position.name.name;
+                                      } else if (
+                                        typeof position.name.description ===
+                                          "string" &&
+                                        position.name.description
+                                      ) {
+                                        nameStr = position.name.description;
+                                      }
+                                    }
+
+                                    // Ensure all values are safe to render
+                                    const safeSymbol = String(symbolStr || "—");
+                                    const safeName = String(nameStr || "—");
+
+                                    return (
+                                      <tr
+                                        key={`pos-${idx}-${safeSymbol || idx}`}
+                                      >
+                                        <td>{safeSymbol}</td>
+                                        <td>{safeName}</td>
+                                        <td>{formatNumber(units)}</td>
+                                        <td>
+                                          {formatCurrency(price, currencyStr)}
+                                        </td>
+                                        <td>
+                                          {formatCurrency(
+                                            marketValue,
+                                            currencyStr
+                                          )}
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        )}
+
+                        {positions.length === 0 && options.length === 0 && (
+                          <div
+                            className="portfolio-status"
+                            style={{ marginTop: "24px" }}
+                          >
+                            No positions or options found for this account.
+                          </div>
+                        )}
+                      </>
+                    )}
                   </div>
                 );
               })()
             ) : (
-              // Cards list + flattened table
-              <>
-                <div style={{ marginBottom: 16 }}>
-                  {accountSummaries.map((acc) => (
-                    <div key={acc.accountId} style={{ marginBottom: 12 }}>
-                      <button
-                        type="button"
-                        onClick={() => toggleAccount(acc.accountId)}
-                        className="account-card"
-                        style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          alignItems: "center",
-                          padding: 16,
-                          width: "100%",
-                          borderRadius: 8,
-                          border: "1px solid #e6e6e6",
-                          background: "#fff",
-                          boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
-                          cursor: "pointer",
-                        }}
-                      >
-                        <div style={{ textAlign: "left" }}>
-                          <div style={{ fontSize: 16, fontWeight: 600 }}>
-                            {acc.accountName}
-                          </div>
-                          <div style={{ fontSize: 12, color: "#666" }}>
-                            {acc.accountId}
-                          </div>
-                        </div>
+              // Account cards list
+              <div className="account-cards-container">
+                {accounts.map((account) => {
+                  // Extract currency string for fallback
+                  let fallbackCurrency = "USD";
+                  if (typeof account.currency === "string") {
+                    fallbackCurrency = account.currency;
+                  } else if (account.currency?.code) {
+                    fallbackCurrency = account.currency.code;
+                  }
 
-                        <div style={{ textAlign: "right" }}>
-                          <div style={{ fontSize: 16, fontWeight: 600 }}>
-                            {formatCurrency(acc.totalMarketValue, acc.currency)}
-                          </div>
-                          <div
-                            style={{
-                              fontSize: 13,
-                              color:
-                                acc.unrealizedPnl > 0
-                                  ? "#0a8a00"
-                                  : acc.unrealizedPnl < 0
-                                  ? "#d32f2f"
-                                  : "#333",
-                            }}
-                          >
-                            {formatCurrency(acc.unrealizedPnl, acc.currency)}
-                          </div>
+                  const balance = accountBalances[account.accountId] || {
+                    totalValue: 0,
+                    cashValue: 0,
+                    positionsValue: 0,
+                    optionsValue: 0,
+                    currency: fallbackCurrency,
+                  };
+
+                  return (
+                    <button
+                      key={account.accountId}
+                      type="button"
+                      className="account-card"
+                      onClick={() => setExpandedAccountId(account.accountId)}
+                    >
+                      <div>
+                        <div className="account-card-name">
+                          {account.accountName || account.accountId}
                         </div>
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </>
+                        <div className="account-card-id">
+                          {account.accountId}
+                        </div>
+                        {account.institutionName && (
+                          <div className="account-card-institution">
+                            {account.institutionName}
+                          </div>
+                        )}
+                      </div>
+
+                      <div>
+                        <div className="account-card-value">
+                          {formatCurrency(balance.totalValue, balance.currency)}
+                        </div>
+                        <div className="account-card-breakdown">
+                          {balance.positionsValue > 0 && (
+                            <span>
+                              Positions:{" "}
+                              {formatCurrency(
+                                balance.positionsValue,
+                                balance.currency
+                              )}
+                            </span>
+                          )}
+                          {balance.cashValue > 0 && (
+                            <span>
+                              Cash:{" "}
+                              {formatCurrency(
+                                balance.cashValue,
+                                balance.currency
+                              )}
+                            </span>
+                          )}
+                          {balance.optionsValue > 0 && (
+                            <span>
+                              Options:{" "}
+                              {formatCurrency(
+                                balance.optionsValue,
+                                balance.currency
+                              )}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
             )}
           </div>
         )}

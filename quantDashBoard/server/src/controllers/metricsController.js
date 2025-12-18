@@ -16,6 +16,12 @@ import AccountBalances from "../models/AccountBalances.js";
 import Metrics from "../models/Metrics.js";
 import PortfolioTimeseries from "../models/PortfolioTimeseries.js";
 import { config } from "../config/environment.js";
+import {
+  calculatePerformanceMetrics,
+  calculateRiskMetrics,
+  calculateFactorMetrics,
+  calculateMaxDrawdown,
+} from "../utils/metricsCalculations.js";
 
 /**
  * Metrics Controller
@@ -66,7 +72,9 @@ class MetricsController {
       const { range = "YTD", accountId } = req.query;
 
       console.log(
-        `Getting portfolio value for user: ${userId}, range: ${range}, accountId: ${accountId || "all"}`
+        `Getting portfolio value for user: ${userId}, range: ${range}, accountId: ${
+          accountId || "all"
+        }`
       );
 
       // Calculate date range
@@ -83,7 +91,9 @@ class MetricsController {
 
       // Get portfolio timeseries data for the range
       // Aggregate totalValue across selected accounts for the user by date
-      const timeseriesData = await PortfolioTimeseries.find(query).sort({ date: 1 });
+      const timeseriesData = await PortfolioTimeseries.find(query).sort({
+        date: 1,
+      });
 
       console.log(
         `Found ${timeseriesData.length} portfolio timeseries records for user ${userId} in range ${range}`
@@ -109,11 +119,41 @@ class MetricsController {
 
       // Aggregate portfolio values by date (sum across all accounts for the user)
       const portfolioByDate = new Map();
+      // Track latest TWR metrics (from most recent date)
+      let latestTWRMetrics = null;
+      let latestDate = null;
+
       timeseriesData.forEach((record) => {
         const dateKey = record.date.toISOString().split("T")[0];
-        const existing = portfolioByDate.get(dateKey) || { date: dateKey, equity: 0 };
+        const existing = portfolioByDate.get(dateKey) || {
+          date: dateKey,
+          equity: 0,
+          cashFlow: 0,
+        };
         existing.equity += record.totalValue || 0;
+        existing.cashFlow += record.depositWithdrawal || 0;
         portfolioByDate.set(dateKey, existing);
+
+        // Track latest TWR metrics (most recent date with TWR data)
+        const recordDate = new Date(record.date);
+        const hasTWRData =
+          (record.twr1Day !== null && record.twr1Day !== undefined) ||
+          (record.twr3Months !== null && record.twr3Months !== undefined) ||
+          (record.twrYearToDate !== null &&
+            record.twrYearToDate !== undefined) ||
+          (record.twrAllTime !== null && record.twrAllTime !== undefined);
+
+        if (hasTWRData && (!latestDate || recordDate >= latestDate)) {
+          latestDate = recordDate;
+          // For multiple accounts, use the most recent account's TWR metrics
+          // In the future, this could be aggregated or weighted
+          latestTWRMetrics = {
+            twr1Day: record.twr1Day,
+            twr3Months: record.twr3Months,
+            twrYearToDate: record.twrYearToDate,
+            twrAllTime: record.twrAllTime,
+          };
+        }
       });
 
       // Convert to array and sort by date
@@ -121,6 +161,7 @@ class MetricsController {
         .map((point) => ({
           date: point.date,
           equity: point.equity,
+          cashFlow: point.cashFlow,
         }))
         .sort((a, b) => new Date(a.date) - new Date(b.date));
 
@@ -131,9 +172,10 @@ class MetricsController {
         summary: {
           startValue: portfolioValues[0]?.equity || 0,
           endValue: portfolioValues[portfolioValues.length - 1]?.equity || 0,
-          totalReturn: this.calculateTotalReturn(portfolioValues),
+          totalReturn: this.calculateTimeWeightedReturn(portfolioValues),
           dataPoints: portfolioValues.length,
         },
+        twrMetrics: latestTWRMetrics || null,
       });
     } catch (error) {
       console.error("Error getting portfolio value:", error);
@@ -180,45 +222,170 @@ class MetricsController {
       }
 
       const { range = "ITD", accountId } = req.query;
+      const period = this.mapRangeToPeriod(range);
 
       console.log(
-        `Getting performance metrics for user: ${userId}, range: ${range}, accountId: ${accountId || "all"}`
+        `Getting performance metrics for user: ${userId}, range: ${range}, period: ${period}, accountId: ${
+          accountId || "all"
+        }`
       );
 
-      // Build query - filter by accountId if provided
-      const currentQuery = {
-        userId,
-        asOfDate: { $gte: new Date(new Date().setHours(0, 0, 0, 0)) },
-      };
+      // Try to get metrics from database first
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      let metricsDoc = null;
       if (accountId) {
-        currentQuery.accountId = accountId;
+        metricsDoc = await Metrics.findOne({
+          userId,
+          accountId,
+          date: today,
+          period: period,
+        });
       }
 
-      // Get current holdings
-      const currentHoldings = await AccountHoldings.find(currentQuery);
+      // If found in database, return it
+      if (metricsDoc && metricsDoc.metrics) {
+        const perf = {
+          totalReturn: metricsDoc.metrics.totalReturn || null,
+          cagr: metricsDoc.metrics.cagr || null,
+          sharpe: metricsDoc.metrics.sharpe || null,
+          sortino: metricsDoc.metrics.sortino || null,
+          calmar: metricsDoc.metrics.calmar || null,
+          alpha: metricsDoc.metrics.alpha || null,
+          volatility: metricsDoc.metrics.volatility || null,
+        };
 
-      // Get historical data for comparison
+        return res.status(200).json({
+          range: range,
+          performance: perf,
+          calculatedAt: metricsDoc.computedAtUtc || metricsDoc.date,
+          source: "database",
+        });
+      }
+
+      // If not in database, calculate from PortfolioTimeseries
       const { startDate } = this.calculateDateRange(range);
-      const historicalQuery = {
+      const query = {
         userId,
-        asOfDate: { $gte: startDate },
+        date: { $gte: startDate, $lte: today },
       };
       if (accountId) {
-        historicalQuery.accountId = accountId;
+        query.accountId = accountId;
       }
-      const historicalHoldings = await AccountHoldings.find(historicalQuery).sort({ asOfDate: 1 });
+
+      const portfolioData = await PortfolioTimeseries.find(query)
+        .sort({ date: 1 })
+        .lean();
+
+      if (!portfolioData || portfolioData.length < 2) {
+        return res.status(200).json({
+          range: range,
+          performance: {
+            totalReturn: null,
+            cagr: null,
+            sharpe: null,
+            sortino: null,
+            calmar: null,
+            alpha: null,
+            volatility: null,
+          },
+          calculatedAt: new Date(),
+          source: "calculated",
+        });
+      }
+
+      // Extract returns and cumulative values
+      const returns = portfolioData
+        .map((pt) => pt.simpleReturns || pt.dailyTWRReturn)
+        .filter((r) => r !== null && r !== undefined && !isNaN(r));
+
+      const cumulativeReturns = portfolioData
+        .map((pt) => pt.equityIndex || pt.totalValue)
+        .filter((v) => v !== null && v !== undefined && !isNaN(v));
+
+      if (returns.length < 2) {
+        return res.status(200).json({
+          range: range,
+          performance: {
+            totalReturn: null,
+            cagr: null,
+            sharpe: null,
+            sortino: null,
+            calmar: null,
+            alpha: null,
+            volatility: null,
+          },
+          calculatedAt: new Date(),
+          source: "calculated",
+        });
+      }
 
       // Calculate performance metrics
-      const performance = this.calculatePerformanceMetrics(
-        currentHoldings,
-        historicalHoldings,
-        range
+      const periodsPerYear = 252; // Daily returns
+      const perfMetrics = calculatePerformanceMetrics(
+        returns,
+        cumulativeReturns,
+        periodsPerYear,
+        this.riskFreeRate
       );
+
+      // Calculate total return and CAGR
+      const firstValue = portfolioData[0].totalValue || 0;
+      const lastValue = portfolioData[portfolioData.length - 1].totalValue || 0;
+      const totalReturn =
+        firstValue > 0 ? (lastValue - firstValue) / firstValue : 0;
+
+      const days = (today - startDate) / (1000 * 60 * 60 * 24);
+      const years = days / 365.25;
+      const cagr = years > 0 ? Math.pow(1 + totalReturn, 1 / years) - 1 : 0;
+
+      const performance = {
+        totalReturn: totalReturn,
+        cagr: cagr,
+        sharpe: perfMetrics.sharpe,
+        sortino: perfMetrics.sortino,
+        calmar: perfMetrics.calmar,
+        alpha: null, // Alpha requires benchmark, calculated in factor metrics
+        volatility: null, // Volatility is in risk metrics
+      };
+
+      // Store in database if accountId is provided
+      if (accountId && returns.length >= 2) {
+        try {
+          await Metrics.findOneAndUpdate(
+            {
+              userId,
+              accountId,
+              date: today,
+              period: period,
+            },
+            {
+              $set: {
+                userId,
+                accountId,
+                date: today,
+                period: period,
+                "metrics.totalReturn": totalReturn,
+                "metrics.cagr": cagr,
+                "metrics.sharpe": perfMetrics.sharpe,
+                "metrics.sortino": perfMetrics.sortino,
+                "metrics.calmar": perfMetrics.calmar,
+                computedAtUtc: new Date(),
+              },
+            },
+            { upsert: true, new: true }
+          );
+        } catch (dbError) {
+          console.error("Error storing performance metrics:", dbError);
+        }
+      }
 
       res.status(200).json({
         range: range,
         performance: performance,
         calculatedAt: new Date(),
+        source: "calculated",
       });
     } catch (error) {
       console.error("Error getting performance metrics:", error);
@@ -264,28 +431,173 @@ class MetricsController {
         });
       }
 
-      const { range = "1Y", accountId } = req.query;
+      const { range = "1Y", accountId, confidence = 0.95 } = req.query;
+      const period = this.mapRangeToPeriod(range);
+      const confLevel = parseFloat(confidence);
 
-      console.log(`Getting risk metrics for user: ${userId}, range: ${range}, accountId: ${accountId || "all"}`);
+      console.log(
+        `Getting risk metrics for user: ${userId}, range: ${range}, period: ${period}, accountId: ${
+          accountId || "all"
+        }`
+      );
 
-      // Get historical holdings data
+      // Try to get metrics from database first
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      let metricsDoc = null;
+      if (accountId) {
+        metricsDoc = await Metrics.findOne({
+          userId,
+          accountId,
+          date: today,
+          period: period,
+        });
+      }
+
+      // If found in database, return it
+      if (metricsDoc && metricsDoc.metrics) {
+        const risk = {
+          volatility: metricsDoc.metrics.volatility || null,
+          maxDrawdown: metricsDoc.metrics.maxDrawdown || null,
+          var95: metricsDoc.metrics.var95 || null,
+          cvar95: metricsDoc.metrics.cvar95 || null,
+          downsideDeviation: metricsDoc.metrics.downsideDeviation || null,
+          omega: metricsDoc.metrics.omega || null,
+          sharpeConfidenceInterval:
+            metricsDoc.metrics.sharpeConfidenceInterval || null,
+          beta: metricsDoc.metrics.beta || null,
+        };
+
+        return res.status(200).json({
+          range: range,
+          riskMetrics: risk,
+          calculatedAt: metricsDoc.computedAtUtc || metricsDoc.date,
+          source: "database",
+        });
+      }
+
+      // If not in database, calculate from PortfolioTimeseries
       const { startDate } = this.calculateDateRange(range);
       const query = {
         userId,
-        asOfDate: { $gte: startDate },
+        date: { $gte: startDate, $lte: today },
       };
       if (accountId) {
         query.accountId = accountId;
       }
-      const holdings = await AccountHoldings.find(query).sort({ asOfDate: 1 });
+
+      const portfolioData = await PortfolioTimeseries.find(query)
+        .sort({ date: 1 })
+        .lean();
+
+      if (!portfolioData || portfolioData.length < 2) {
+        return res.status(200).json({
+          range: range,
+          riskMetrics: {
+            volatility: null,
+            maxDrawdown: null,
+            var95: null,
+            cvar95: null,
+            downsideDeviation: null,
+            omega: null,
+            sharpeConfidenceInterval: null,
+            beta: null,
+          },
+          calculatedAt: new Date(),
+          source: "calculated",
+        });
+      }
+
+      // Extract returns and cumulative values
+      const returns = portfolioData
+        .map((pt) => pt.simpleReturns || pt.dailyTWRReturn)
+        .filter((r) => r !== null && r !== undefined && !isNaN(r));
+
+      const cumulativeReturns = portfolioData
+        .map((pt) => pt.equityIndex || pt.totalValue)
+        .filter((v) => v !== null && v !== undefined && !isNaN(v));
+
+      if (returns.length < 2) {
+        return res.status(200).json({
+          range: range,
+          riskMetrics: {
+            volatility: null,
+            maxDrawdown: null,
+            var95: null,
+            cvar95: null,
+            downsideDeviation: null,
+            omega: null,
+            sharpeConfidenceInterval: null,
+            beta: null,
+          },
+          calculatedAt: new Date(),
+          source: "calculated",
+        });
+      }
 
       // Calculate risk metrics
-      const riskMetrics = this.calculateRiskMetrics(holdings, range);
+      const periodsPerYear = 252; // Daily returns
+      const riskMetrics = calculateRiskMetrics(
+        returns,
+        confLevel,
+        periodsPerYear,
+        this.riskFreeRate
+      );
+
+      // Calculate max drawdown
+      const maxDrawdown = calculateMaxDrawdown(cumulativeReturns);
+
+      const risk = {
+        volatility: riskMetrics.annualizedVolatility,
+        maxDrawdown: maxDrawdown,
+        var95: riskMetrics.var95,
+        cvar95: riskMetrics.cvar95,
+        downsideDeviation: riskMetrics.downsideDeviation,
+        omega: riskMetrics.omega,
+        sharpeConfidenceInterval: riskMetrics.sharpeConfidenceInterval,
+        beta: null, // Beta requires benchmark, calculated in factor metrics
+      };
+
+      // Store in database if accountId is provided
+      if (accountId && returns.length >= 2) {
+        try {
+          await Metrics.findOneAndUpdate(
+            {
+              userId,
+              accountId,
+              date: today,
+              period: period,
+            },
+            {
+              $set: {
+                userId,
+                accountId,
+                date: today,
+                period: period,
+                "metrics.volatility": riskMetrics.annualizedVolatility,
+                "metrics.maxDrawdown": maxDrawdown,
+                "metrics.var95": riskMetrics.var95,
+                "metrics.cvar95": riskMetrics.cvar95,
+                "metrics.downsideDeviation": riskMetrics.downsideDeviation,
+                "metrics.omega": riskMetrics.omega,
+                "metrics.sharpeConfidenceInterval":
+                  riskMetrics.sharpeConfidenceInterval,
+                computedAtUtc: new Date(),
+              },
+            },
+            { upsert: true, new: true }
+          );
+        } catch (dbError) {
+          console.error("Error storing risk metrics:", dbError);
+        }
+      }
 
       res.status(200).json({
         range: range,
-        riskMetrics: riskMetrics,
+        riskMetrics: risk,
         calculatedAt: new Date(),
+        source: "calculated",
       });
     } catch (error) {
       console.error("Error getting risk metrics:", error);
@@ -333,7 +645,9 @@ class MetricsController {
       const { model = "FF3", range = "1Y", accountId } = req.query;
 
       console.log(
-        `Getting factor exposures for user: ${userId}, model: ${model}, range: ${range}, accountId: ${accountId || "all"}`
+        `Getting factor exposures for user: ${userId}, model: ${model}, range: ${range}, accountId: ${
+          accountId || "all"
+        }`
       );
 
       // Get historical holdings data
@@ -407,7 +721,11 @@ class MetricsController {
 
       const { range = "YTD", accountId } = req.query;
 
-      console.log(`Getting KPI metrics for user: ${userId}, range: ${range}, accountId: ${accountId || "all"}`);
+      console.log(
+        `Getting KPI metrics for user: ${userId}, range: ${range}, accountId: ${
+          accountId || "all"
+        }`
+      );
 
       // Get historical holdings data
       const { startDate } = this.calculateDateRange(range);
@@ -474,7 +792,9 @@ class MetricsController {
       const { series = "returns", range = "1Y", accountId } = req.query;
 
       console.log(
-        `Getting time series for user: ${userId}, series: ${series}, range: ${range}, accountId: ${accountId || "all"}`
+        `Getting time series for user: ${userId}, series: ${series}, range: ${range}, accountId: ${
+          accountId || "all"
+        }`
       );
 
       // Get historical holdings data
@@ -512,6 +832,29 @@ class MetricsController {
   // Helper Methods
 
   /**
+   * Map range parameter to period enum value
+   */
+  mapRangeToPeriod(range) {
+    const rangeUpper = range.toUpperCase();
+    switch (rangeUpper) {
+      case "1M":
+        return "1M";
+      case "3M":
+        return "3M";
+      case "YTD":
+        return "YTD";
+      case "1Y":
+        return "1Y";
+      case "ITD":
+      case "ALL":
+      case "ALLTIME":
+        return "ITD";
+      default:
+        return "ITD";
+    }
+  }
+
+  /**
    * Calculate date range based on range parameter
    */
   calculateDateRange(range) {
@@ -533,6 +876,10 @@ class MetricsController {
         break;
       case "ITD":
         startDate.setFullYear(2020); // Start from 2020 for ITD
+        break;
+      case "ALL":
+      case "ALLTIME":
+        startDate.setFullYear(1970, 0, 1); // Start from 1970 for All Time
         break;
       default:
         startDate.setMonth(now.getMonth() - 3);
@@ -576,13 +923,99 @@ class MetricsController {
   }
 
   /**
-   * Calculate total return from time series
+   * Calculate total return from time series (simple point-to-point)
+   * @deprecated Use calculateTimeWeightedReturn for accurate returns with cash flows
    */
   calculateTotalReturn(timeSeries) {
     if (timeSeries.length < 2) return 0;
     const startValue = timeSeries[0].equity;
     const endValue = timeSeries[timeSeries.length - 1].equity;
     return (endValue - startValue) / startValue;
+  }
+
+  /**
+   * Calculate Time-Weighted Rate of Return (TWR)
+   *
+   * TWR eliminates the impact of external cash flows by breaking the investment period
+   * into sub-periods at each cash flow event, calculating returns for each sub-period,
+   * and then linking them geometrically.
+   *
+   * Formula: TWR = [(1 + HP1) × (1 + HP2) × ... × (1 + HPn)] - 1
+   * where HP = (End Value - (Initial Value + Cash Flow)) / (Initial Value + Cash Flow)
+   *
+   * For each sub-period:
+   * - Sub-period ends just before a cash flow (or at the end of the period)
+   * - The return is calculated using the value before the cash flow
+   * - Then the cash flow is applied, and the next sub-period starts
+   *
+   * Reference: https://www.investopedia.com/terms/t/time-weightedror.asp
+   *
+   * @param {Array} timeSeries - Array of {date, equity, cashFlow} objects sorted by date
+   * @returns {number} Time-weighted return as a decimal (e.g., 0.15 for 15%)
+   */
+  calculateTimeWeightedReturn(timeSeries) {
+    if (timeSeries.length < 2) return 0;
+
+    const subPeriodReturns = [];
+    let subPeriodStartIdx = 0;
+
+    // Process each day to identify sub-periods
+    for (let i = 1; i < timeSeries.length; i++) {
+      const hasCashFlow = Math.abs(timeSeries[i].cashFlow || 0) > 1e-6;
+      const isLastDay = i === timeSeries.length - 1;
+
+      // A sub-period ends when we encounter a cash flow or reach the last day
+      if (hasCashFlow || isLastDay) {
+        const startValue = timeSeries[subPeriodStartIdx].equity;
+        const endValue = timeSeries[i].equity;
+        const cashFlow = timeSeries[i].cashFlow || 0;
+
+        // Calculate holding period return for this sub-period
+        // The end value should be adjusted to exclude the cash flow for return calculation
+        // HP = (End Value Before Cash Flow - Start Value) / Start Value
+        // But if cash flow happens on the same day, we need to adjust:
+        // End Value Before Cash Flow = End Value - Cash Flow
+        const endValueBeforeCashFlow = endValue - cashFlow;
+
+        let holdingPeriodReturn = 0;
+        if (Math.abs(startValue) > 1e-6) {
+          holdingPeriodReturn =
+            (endValueBeforeCashFlow - startValue) / startValue;
+        } else if (Math.abs(endValueBeforeCashFlow) > 1e-6) {
+          // If start value is zero but we have an end value, return is undefined
+          // In practice, this might indicate a new account - skip this sub-period
+          holdingPeriodReturn = 0;
+        }
+
+        subPeriodReturns.push(holdingPeriodReturn);
+
+        // Next sub-period starts after this cash flow (or continues if no cash flow on last day)
+        if (hasCashFlow) {
+          subPeriodStartIdx = i;
+        }
+      }
+    }
+
+    // If no sub-periods were created (shouldn't happen, but handle edge case)
+    if (subPeriodReturns.length === 0) {
+      const startValue = timeSeries[0].equity;
+      const endValue = timeSeries[timeSeries.length - 1].equity;
+      if (Math.abs(startValue) > 1e-6) {
+        return (endValue - startValue) / startValue;
+      }
+      return 0;
+    }
+
+    // Link sub-period returns geometrically: TWR = product of (1 + HP) - 1
+    const twr =
+      subPeriodReturns.reduce((product, hp) => {
+        // Handle edge cases where return might be very negative
+        // Allow negative factors (losses) - only check for finite values
+        const factor = 1 + hp;
+        return product * (isFinite(factor) ? factor : 1);
+      }, 1) - 1;
+
+    return isFinite(twr) ? twr : 0;
   }
 
   /**

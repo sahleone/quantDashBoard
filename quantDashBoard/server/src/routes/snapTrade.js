@@ -112,6 +112,14 @@ router.get("/debug/resolve", (req, res) => {
 });
 
 /**
+ * Fetch account positions from SnapTrade (pass-through, no DB persistence)
+ * GET /api/snaptrade/positions?accountId=...
+ */
+router.get("/positions", (req, res) => {
+  snapTradeController.getAccountPositions(req, res);
+});
+
+/**
  * Fetch option holdings from SnapTrade (pass-through, no DB persistence)
  * GET /api/snaptrade/options/holdings?userId=...&userSecret=...&accountId=...
  */

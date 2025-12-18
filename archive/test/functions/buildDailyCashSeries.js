@@ -1,5 +1,10 @@
 import { formatDateToYYYYMMDD } from "../utils/dateHelpers.js";
 import { ensureDbConnection, getDb } from "../utils/dbConnection.js";
+import {
+  getMinDate,
+  createDateMapping,
+  buildCashTimeSeries,
+} from "./buildUnifiedTimeseries.js";
 
 /**
  * Generates array of dates between start and end (inclusive)
@@ -137,8 +142,34 @@ export async function buildDailyCashSeries(opts = {}) {
     return [];
   }
 
+  // Step 0: Deduplicate activities by activityId to prevent double counting
+  const seenActivityIds = new Set();
+  const deduplicatedActivities = activities.filter((activity) => {
+    const activityId = activity.activityId || activity.id;
+    if (!activityId) {
+      // Keep activities without IDs (shouldn't happen, but handle gracefully)
+      return true;
+    }
+    if (seenActivityIds.has(activityId)) {
+      console.warn(
+        `Duplicate activity detected and removed: ${activityId} (type: ${activity.type})`
+      );
+      return false;
+    }
+    seenActivityIds.add(activityId);
+    return true;
+  });
+
+  if (deduplicatedActivities.length !== activities.length) {
+    console.log(
+      `Removed ${
+        activities.length - deduplicatedActivities.length
+      } duplicate activities`
+    );
+  }
+
   // Step 1: Normalize and sort activities (oldest → newest)
-  const normalized = normalizeAndSortActivities(activities);
+  const normalized = normalizeAndSortActivities(deduplicatedActivities);
 
   if (normalized.length === 0) {
     return [];
@@ -166,58 +197,25 @@ export async function buildDailyCashSeries(opts = {}) {
     return [];
   }
 
-  // Step 3: Determine date range
-  const firstActivity = filtered[0];
-  const lastActivity = filtered[filtered.length - 1];
-
-  const startDate = firstActivity.date_only;
-  if (!startDate) {
+  // Step 3: Use unified approach to build cash time series
+  const minDate = getMinDate(filtered);
+  if (!minDate) {
     throw new Error("Cannot determine start date from activities");
   }
 
-  const lastActivityDate = lastActivity.date_only;
-  const endDateStr = endDate
-    ? formatDateToYYYYMMDD(endDate)
-    : lastActivityDate || formatDateToYYYYMMDD(new Date());
+  const today = endDate ? new Date(endDate) : new Date();
+  today.setHours(0, 0, 0, 0);
 
-  // Step 3: Build full date list
-  const allDates = generateDateRange(startDate, endDateStr);
+  // Create date mapping and build cash time series
+  const dateMapping = createDateMapping(minDate, today);
+  buildCashTimeSeries(filtered, dateMapping);
 
-  // Step 4: Group activities by date
-  const activitiesByDate = groupActivitiesByDate(filtered);
-
-  // Step 5: Initialize cash state
-  let cash = initialCash;
-  const dates = [];
-  const dailyCash = [];
-
-  for (const date of allDates) {
-    const dateKey = formatDateToYYYYMMDD(date);
-    let cashToday = cash;
-    const todayActivities = activitiesByDate.get(dateKey) || [];
-
-    for (const activity of todayActivities) {
-      const amount = activity.amount;
-
-      if (amount === null || amount === undefined || isNaN(amount)) {
-        console.warn(
-          `Activity ${
-            activity.activityId || activity.id
-          } has invalid amount, skipping`
-        );
-        continue;
-      }
-
-      cashToday += amount;
-    }
-
-    cash = cashToday;
-    dates.push(dateKey);
-    dailyCash.push(cashToday);
-  }
-  return dates.map((date, index) => ({
-    date,
-    cash: dailyCash[index],
+  // Convert date mapping to array format for backward compatibility
+  // Apply initialCash offset to all cash values
+  const sortedDates = Object.keys(dateMapping).sort();
+  return sortedDates.map((dateStr) => ({
+    date: dateStr,
+    cash: (dateMapping[dateStr]?.cash || 0) + initialCash,
     currency: targetCurrency,
   }));
 }

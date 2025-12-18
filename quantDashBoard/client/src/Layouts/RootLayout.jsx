@@ -10,24 +10,22 @@ function RootLayout() {
 
   return (
     <div className="root-layout">
-      <header>
-        <nav>
-          <h1>Quant Dashboard</h1>
+      {isAuthenticated && (
+        <header>
+          <nav>
+            <h1>Quant Dashboard</h1>
 
-          {/* Protected links: show only when authenticated */}
-          {isAuthenticated && (
-            <>
-              <NavLink to="/portfolio">Portfolio</NavLink>
-              <NavLink to="/dashboard">Dashboard</NavLink>
-              <NavLink to="/settings">Settings</NavLink>
-              <NavLink to="/stock-info">Stock Info</NavLink>
-            </>
-          )}
-
-          {/* Auth links: show Logout when authenticated, otherwise show Login/Signup */}
-          {isAuthenticated ? <NavLink to="/logout">Logout</NavLink> : null}
-        </nav>
-      </header>
+            {/* Protected links: show only when authenticated */}
+            <NavLink to="/portfolio">Portfolio</NavLink>
+            <NavLink to="/dashboard">Dashboard</NavLink>
+            <NavLink to="/asset-allocation">Asset Allocation</NavLink>
+            <NavLink to="/dividends">Dividends</NavLink>
+            <NavLink to="/settings">Settings</NavLink>
+            <NavLink to="/stock-info">Stock Info</NavLink>
+            <NavLink to="/logout">Logout</NavLink>
+          </nav>
+        </header>
+      )}
       <main>
         <Outlet />
       </main>

@@ -156,7 +156,9 @@ function StockInfo() {
           <button type="submit">Search</button>
         </form>
       </div>
-      <LineGraph ticker={ticker} labels={timestamps} data={closePrices} />
+      <div className="chart-wrapper">
+        <LineGraph ticker={ticker} labels={timestamps} data={closePrices} />
+      </div>
       <CompanyOverview tickerOverviewData={tickerOverviewData} />
     </div>
   );

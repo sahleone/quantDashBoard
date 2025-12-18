@@ -24,10 +24,16 @@ export async function ensureDbConnection(databaseUrl = null) {
 
   try {
     await mongoose.connect(dbUrl, {
-      serverSelectionTimeoutMS: 10000,
-      connectTimeoutMS: 10000,
-      socketTimeoutMS: 45000,
+      serverSelectionTimeoutMS: 60000, // 60 seconds
+      connectTimeoutMS: 60000, // 60 seconds
+      socketTimeoutMS: 120000, // 2 minutes
+      maxPoolSize: 50, // Increase connection pool
+      minPoolSize: 10,
+      maxIdleTimeMS: 45000,
     });
+
+    // Verify connection is ready
+    await mongoose.connection.db.admin().ping();
   } catch (err) {
     console.error("Failed to connect to MongoDB:", err?.message || err);
     throw err;
@@ -53,8 +59,9 @@ export async function disconnectDb() {
  */
 export function getDb() {
   if (mongoose.connection.readyState !== 1) {
-    throw new Error("MongoDB connection not established. Call ensureDbConnection() first.");
+    throw new Error(
+      "MongoDB connection not established. Call ensureDbConnection() first."
+    );
   }
   return mongoose.connection.db;
 }
-

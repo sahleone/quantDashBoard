@@ -918,13 +918,49 @@ class SnapTradeController {
   }
 
   /**
+   * Fetch account positions from SnapTrade (pass-through, no DB persistence)
+   * Accepts query params: { accountId } (uses authenticated user from req.user)
+   */
+  async getAccountPositions(req, res) {
+    try {
+      const { accountId } = req.query || {};
+      const user = req.user;
+
+      if (!user || !user.userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      if (!accountId) {
+        return res.status(400).json({ error: "Missing accountId" });
+      }
+
+      const positions = await this.accountService.listAccountPositions(
+        user.userId,
+        user.userSecret,
+        accountId
+      );
+
+      return res.status(200).json({ positions });
+    } catch (error) {
+      console.error("Error fetching positions from SnapTrade:", error);
+      return res.status(500).json({ error: "Failed to fetch positions" });
+    }
+  }
+
+  /**
    * Fetch option holdings from SnapTrade (pass-through, no DB persistence)
-   * Accepts query params or body: { userId, userSecret, accountId }
+   * Accepts query params: { accountId } (uses authenticated user from req.user)
+   * Also accepts query params or body: { userId, userSecret, accountId } for backwards compatibility
    */
   async getAccountOptionHoldings(req, res) {
     try {
-      const params = { ...(req.query || {}), ...(req.body || {}) };
-      const { userId, userSecret, accountId } = params;
+      const { accountId } = req.query || {};
+      const user = req.user;
+
+      // Use authenticated user if available, otherwise try query/body params (backwards compatibility)
+      const userId = user?.userId || req.query?.userId || req.body?.userId;
+      const userSecret =
+        user?.userSecret || req.query?.userSecret || req.body?.userSecret;
 
       if (!userId || !userSecret || !accountId) {
         return res.status(400).json({ error: "Missing required parameters" });

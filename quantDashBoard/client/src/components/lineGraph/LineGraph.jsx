@@ -23,7 +23,15 @@ ChartJS.register(
   );
 
 function LineGraph({ticker, labels, data}) {
-    const options = {}
+    const options = {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: {
+                display: true,
+            },
+        },
+    }
 
     const chartData = {
         labels: labels,
