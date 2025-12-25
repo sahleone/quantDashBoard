@@ -13,10 +13,10 @@
  */
 
 import mongoose from "mongoose";
-import Metrics from "../../models/Metrics.js";
-import PortfolioTimeseries from "../../models/PortfolioTimeseries.js";
-import AccountActivities from "../../models/AccountActivities.js";
-import PriceHistory from "../../models/PriceHistory.js";
+import Metrics from "../models/Metrics.js";
+import PortfolioTimeseries from "../models/PortfolioTimeseries.js";
+import AccountActivities from "../models/AccountActivities.js";
+import PriceHistory from "../models/PriceHistory.js";
 import * as portfolioSnapshotMetrics from "./helpers/portfolioSnapshotMetrics.js";
 import * as returnsMetrics from "./helpers/returnsMetrics.js";
 import * as riskMetrics from "./helpers/riskMetrics.js";

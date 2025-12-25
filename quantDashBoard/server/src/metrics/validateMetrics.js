@@ -12,10 +12,10 @@
  */
 
 import mongoose from "mongoose";
-import PortfolioTimeseries from "../../models/PortfolioTimeseries.js";
-import PriceHistory from "../../models/PriceHistory.js";
-import EquitiesWeightTimeseries from "../../models/EquitiesWeightTimeseries.js";
-import AccountActivities from "../../models/AccountActivities.js";
+import PortfolioTimeseries from "../models/PortfolioTimeseries.js";
+import PriceHistory from "../models/PriceHistory.js";
+import EquitiesWeightTimeseries from "../models/EquitiesWeightTimeseries.js";
+import AccountActivities from "../models/AccountActivities.js";
 
 /**
  * Validation results structure
