@@ -45,14 +45,20 @@ async function debugMaxValue() {
     console.log(`Total Value: $${maxRecord.totalValue?.toLocaleString()}`);
     console.log(`Cash Value: $${maxRecord.cashValue?.toLocaleString()}`);
     console.log(`Stock Value: $${maxRecord.stockValue?.toLocaleString()}`);
-    console.log(`Deposit/Withdrawal: $${maxRecord.depositWithdrawal?.toLocaleString()}`);
-    console.log(`External Flow Cumulative: $${maxRecord.externalFlowCumulative?.toLocaleString()}`);
+    console.log(
+      `Deposit/Withdrawal: $${maxRecord.depositWithdrawal?.toLocaleString()}`
+    );
+    console.log(
+      `External Flow Cumulative: $${maxRecord.externalFlowCumulative?.toLocaleString()}`
+    );
 
     if (maxRecord.positions && maxRecord.positions.length > 0) {
       console.log(`\nPositions (${maxRecord.positions.length}):`);
       maxRecord.positions.forEach((pos, idx) => {
         console.log(
-          `  ${idx + 1}. ${pos.symbol}: ${pos.units} units @ $${pos.price} = $${pos.value?.toLocaleString()}`
+          `  ${idx + 1}. ${pos.symbol}: ${pos.units} units @ $${
+            pos.price
+          } = $${pos.value?.toLocaleString()}`
         );
       });
     } else {
@@ -60,7 +66,8 @@ async function debugMaxValue() {
     }
 
     // Check what dates are available for this account
-    const AccountBalances = mongoose.connection.db.collection("accountbalances");
+    const AccountBalances =
+      mongoose.connection.db.collection("accountbalances");
     const allBalances = await AccountBalances.find({
       accountId: maxRecord.accountId,
     })
@@ -68,9 +75,15 @@ async function debugMaxValue() {
       .limit(5)
       .toArray();
 
-    console.log(`\n=== Recent AccountBalances for this account (${allBalances.length} found) ===`);
+    console.log(
+      `\n=== Recent AccountBalances for this account (${allBalances.length} found) ===`
+    );
     allBalances.forEach((bal) => {
-      console.log(`  Date: ${bal.asOfDate}, Cash: $${bal.cash?.toLocaleString()}, Equity: $${bal.totalEquity?.toLocaleString()}`);
+      console.log(
+        `  Date: ${
+          bal.asOfDate
+        }, Cash: $${bal.cash?.toLocaleString()}, Equity: $${bal.totalEquity?.toLocaleString()}`
+      );
     });
 
     // Check AccountBalances for the same date
@@ -86,10 +99,16 @@ async function debugMaxValue() {
       console.log("\n=== ACCOUNT BALANCES (from DB) ===");
       console.log(`Date: ${balanceRecord.asOfDate}`);
       console.log(`Cash: $${balanceRecord.cash?.toLocaleString()}`);
-      console.log(`Buying Power: $${balanceRecord.buyingPower?.toLocaleString()}`);
-      console.log(`Total Equity: $${balanceRecord.totalEquity?.toLocaleString()}`);
+      console.log(
+        `Buying Power: $${balanceRecord.buyingPower?.toLocaleString()}`
+      );
+      console.log(
+        `Total Equity: $${balanceRecord.totalEquity?.toLocaleString()}`
+      );
     } else {
-      console.log("\n=== No AccountBalances record found for this exact date ===");
+      console.log(
+        "\n=== No AccountBalances record found for this exact date ==="
+      );
       // Try to find closest date
       const closestBalance = await AccountBalances.findOne(
         { accountId: maxRecord.accountId },
@@ -99,12 +118,15 @@ async function debugMaxValue() {
         console.log(`\nClosest AccountBalances record:`);
         console.log(`  Date: ${closestBalance.asOfDate}`);
         console.log(`  Cash: $${closestBalance.cash?.toLocaleString()}`);
-        console.log(`  Total Equity: $${closestBalance.totalEquity?.toLocaleString()}`);
+        console.log(
+          `  Total Equity: $${closestBalance.totalEquity?.toLocaleString()}`
+        );
       }
     }
 
     // Check what dates are available for positions
-    const AccountPositions = mongoose.connection.db.collection("accountpositions");
+    const AccountPositions =
+      mongoose.connection.db.collection("accountpositions");
     const recentPositions = await AccountPositions.find({
       accountId: maxRecord.accountId,
     })
@@ -112,7 +134,9 @@ async function debugMaxValue() {
       .limit(10)
       .toArray();
 
-    console.log(`\n=== Recent AccountPositions for this account (${recentPositions.length} found) ===`);
+    console.log(
+      `\n=== Recent AccountPositions for this account (${recentPositions.length} found) ===`
+    );
     const positionsByDate = new Map();
     recentPositions.forEach((pos) => {
       const dateKey = pos.asOfDate.toISOString().split("T")[0];
@@ -135,20 +159,27 @@ async function debugMaxValue() {
     }).toArray();
 
     if (positions.length > 0) {
-      console.log(`\n=== ACCOUNT POSITIONS (from DB) - ${positions.length} positions ===`);
+      console.log(
+        `\n=== ACCOUNT POSITIONS (from DB) - ${positions.length} positions ===`
+      );
       let totalPositionValue = 0;
       positions.forEach((pos, idx) => {
         const units = pos.units || 0;
         const price = pos.price || 0;
         const marketValue = units * price;
         totalPositionValue += marketValue;
-        const symbol = pos.symbolTicker || pos.positionSymbol?.symbol?.symbol || "UNKNOWN";
+        const symbol =
+          pos.symbolTicker || pos.positionSymbol?.symbol?.symbol || "UNKNOWN";
         const typeCode = pos.positionSymbol?.symbol?.type?.code || "UNKNOWN";
         console.log(
-          `  ${idx + 1}. ${symbol} (${typeCode}): ${units} units @ $${price} = $${marketValue.toLocaleString()}`
+          `  ${
+            idx + 1
+          }. ${symbol} (${typeCode}): ${units} units @ $${price} = $${marketValue.toLocaleString()}`
         );
       });
-      console.log(`\nTotal Position Value: $${totalPositionValue.toLocaleString()}`);
+      console.log(
+        `\nTotal Position Value: $${totalPositionValue.toLocaleString()}`
+      );
     } else {
       console.log("\n=== No AccountPositions found for this exact date ===");
       // Try to find closest date
@@ -159,10 +190,14 @@ async function debugMaxValue() {
         .limit(20)
         .toArray();
       if (closestPositions.length > 0) {
-        console.log(`\nClosest AccountPositions (${closestPositions.length} positions):`);
+        console.log(
+          `\nClosest AccountPositions (${closestPositions.length} positions):`
+        );
         const closestDate = closestPositions[0].asOfDate;
         const sameDatePositions = closestPositions.filter(
-          (p) => p.asOfDate.toISOString().split("T")[0] === closestDate.toISOString().split("T")[0]
+          (p) =>
+            p.asOfDate.toISOString().split("T")[0] ===
+            closestDate.toISOString().split("T")[0]
         );
         let totalPositionValue = 0;
         sameDatePositions.forEach((pos, idx) => {
@@ -170,14 +205,19 @@ async function debugMaxValue() {
           const price = pos.price || 0;
           const marketValue = units * price;
           totalPositionValue += marketValue;
-          const symbol = pos.symbolTicker || pos.positionSymbol?.symbol?.symbol || "UNKNOWN";
+          const symbol =
+            pos.symbolTicker || pos.positionSymbol?.symbol?.symbol || "UNKNOWN";
           const typeCode = pos.positionSymbol?.symbol?.type?.code || "UNKNOWN";
           console.log(
-            `  ${idx + 1}. ${symbol} (${typeCode}): ${units} units @ $${price} = $${marketValue.toLocaleString()}`
+            `  ${
+              idx + 1
+            }. ${symbol} (${typeCode}): ${units} units @ $${price} = $${marketValue.toLocaleString()}`
           );
         });
         console.log(`  Date: ${closestDate.toISOString().split("T")[0]}`);
-        console.log(`  Total Position Value: $${totalPositionValue.toLocaleString()}`);
+        console.log(
+          `  Total Position Value: $${totalPositionValue.toLocaleString()}`
+        );
       }
     }
 
@@ -190,7 +230,9 @@ async function debugMaxValue() {
       .limit(10)
       .toArray();
 
-    console.log(`\n=== Recent Options for this account (${allOptions.length} found) ===`);
+    console.log(
+      `\n=== Recent Options for this account (${allOptions.length} found) ===`
+    );
     const optionsByDate = new Map();
     allOptions.forEach((opt) => {
       const dateKey = opt.asOfDate.toISOString().split("T")[0];
@@ -219,17 +261,25 @@ async function debugMaxValue() {
         const marketValue = opt.market_value || opt.marketValue || 0;
         const price = opt.price || 0;
         const units = opt.units || 0;
-        const isMini = opt.option_symbol?.is_mini_option || opt.is_mini_option || false;
+        const isMini =
+          opt.option_symbol?.is_mini_option || opt.is_mini_option || false;
         const multiplier = isMini ? 10 : 100;
         const calculatedValue = price * Math.abs(units) * multiplier;
         const value = marketValue || calculatedValue;
         totalOptionsValue += value;
-        const symbol = opt.option_symbol?.underlying_symbol?.symbol || opt.symbol || "UNKNOWN";
+        const symbol =
+          opt.option_symbol?.underlying_symbol?.symbol ||
+          opt.symbol ||
+          "UNKNOWN";
         console.log(
-          `  ${idx + 1}. ${symbol}: ${units} contracts @ $${price} (${isMini ? "mini" : "standard"}) = $${value.toLocaleString()}`
+          `  ${idx + 1}. ${symbol}: ${units} contracts @ $${price} (${
+            isMini ? "mini" : "standard"
+          }) = $${value.toLocaleString()}`
         );
       });
-      console.log(`\nTotal Options Value: $${totalOptionsValue.toLocaleString()}`);
+      console.log(
+        `\nTotal Options Value: $${totalOptionsValue.toLocaleString()}`
+      );
     } else {
       console.log("\n=== No Options found for this exact date ===");
       // Try to find closest date
@@ -243,25 +293,35 @@ async function debugMaxValue() {
         console.log(`\nClosest Options (${closestOptions.length} options):`);
         const closestDate = closestOptions[0].asOfDate;
         const sameDateOptions = closestOptions.filter(
-          (o) => o.asOfDate.toISOString().split("T")[0] === closestDate.toISOString().split("T")[0]
+          (o) =>
+            o.asOfDate.toISOString().split("T")[0] ===
+            closestDate.toISOString().split("T")[0]
         );
         let totalOptionsValue = 0;
         sameDateOptions.forEach((opt, idx) => {
           const marketValue = opt.market_value || opt.marketValue || 0;
           const price = opt.price || 0;
           const units = opt.units || 0;
-          const isMini = opt.option_symbol?.is_mini_option || opt.is_mini_option || false;
+          const isMini =
+            opt.option_symbol?.is_mini_option || opt.is_mini_option || false;
           const multiplier = isMini ? 10 : 100;
           const calculatedValue = price * Math.abs(units) * multiplier;
           const value = marketValue || calculatedValue;
           totalOptionsValue += value;
-          const symbol = opt.option_symbol?.underlying_symbol?.symbol || opt.symbol || "UNKNOWN";
+          const symbol =
+            opt.option_symbol?.underlying_symbol?.symbol ||
+            opt.symbol ||
+            "UNKNOWN";
           console.log(
-            `  ${idx + 1}. ${symbol}: ${units} contracts @ $${price} (${isMini ? "mini" : "standard"}) = $${value.toLocaleString()}`
+            `  ${idx + 1}. ${symbol}: ${units} contracts @ $${price} (${
+              isMini ? "mini" : "standard"
+            }) = $${value.toLocaleString()}`
           );
         });
         console.log(`  Date: ${closestDate.toISOString().split("T")[0]}`);
-        console.log(`  Total Options Value: $${totalOptionsValue.toLocaleString()}`);
+        console.log(
+          `  Total Options Value: $${totalOptionsValue.toLocaleString()}`
+        );
       } else {
         // Check if there are ANY options in the database
         const anyOptions = await Options.countDocuments({});
@@ -281,22 +341,44 @@ async function debugMaxValue() {
       const marketValue = opt.market_value || opt.marketValue || 0;
       const price = opt.price || 0;
       const units = opt.units || 0;
-      const isMini = opt.option_symbol?.is_mini_option || opt.is_mini_option || false;
+      const isMini =
+        opt.option_symbol?.is_mini_option || opt.is_mini_option || false;
       const multiplier = isMini ? 10 : 100;
       const calculatedValue = price * Math.abs(units) * multiplier;
       optionsValue += marketValue || calculatedValue;
     });
 
     console.log("\n=== COMPARISON ===");
-    console.log(`PortfolioTimeseries Total Value: $${maxRecord.totalValue?.toLocaleString()}`);
-    console.log(`PortfolioTimeseries Cash: $${maxRecord.cashValue?.toLocaleString()}`);
-    console.log(`PortfolioTimeseries Stock: $${maxRecord.stockValue?.toLocaleString()}`);
+    console.log(
+      `PortfolioTimeseries Total Value: $${maxRecord.totalValue?.toLocaleString()}`
+    );
+    console.log(
+      `PortfolioTimeseries Cash: $${maxRecord.cashValue?.toLocaleString()}`
+    );
+    console.log(
+      `PortfolioTimeseries Stock: $${maxRecord.stockValue?.toLocaleString()}`
+    );
     console.log(`\nAccountBalances Cash: $${balanceCash.toLocaleString()}`);
-    console.log(`AccountBalances Total Equity: $${balanceEquity.toLocaleString()}`);
+    console.log(
+      `AccountBalances Total Equity: $${balanceEquity.toLocaleString()}`
+    );
     console.log(`AccountPositions Total: $${positionsValue.toLocaleString()}`);
     console.log(`Options Total: $${optionsValue.toLocaleString()}`);
-    console.log(`\nExpected Total (Cash + Positions + Options): $${(balanceCash + positionsValue + optionsValue).toLocaleString()}`);
-    console.log(`\nDifference: $${((balanceCash + positionsValue + optionsValue) - maxRecord.totalValue).toLocaleString()}`);
+    console.log(
+      `\nExpected Total (Cash + Positions + Options): $${(
+        balanceCash +
+        positionsValue +
+        optionsValue
+      ).toLocaleString()}`
+    );
+    console.log(
+      `\nDifference: $${(
+        balanceCash +
+        positionsValue +
+        optionsValue -
+        maxRecord.totalValue
+      ).toLocaleString()}`
+    );
 
     await mongoose.disconnect();
     console.log("\n✓ Disconnected from MongoDB");
@@ -310,4 +392,3 @@ async function debugMaxValue() {
 }
 
 debugMaxValue();
-

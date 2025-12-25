@@ -116,11 +116,29 @@ async function sanityCheck() {
       // Calculate from PortfolioTimeseries
       console.log("\n📊 PORTFOLIO TIMESERIES (Current System):");
       if (ptRecord) {
-        const ptDate = ptRecord.date instanceof Date ? ptRecord.date : new Date(ptRecord.date);
+        const ptDate =
+          ptRecord.date instanceof Date
+            ? ptRecord.date
+            : new Date(ptRecord.date);
         console.log(`  Date: ${ptDate.toISOString().split("T")[0]}`);
-        console.log(`  Cash Value: $${(ptRecord.cashValue || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
-        console.log(`  Stock Value: $${(ptRecord.stockValue || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
-        console.log(`  Total Value: $${(ptRecord.totalValue || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
+        console.log(
+          `  Cash Value: $${(ptRecord.cashValue || 0).toLocaleString(
+            undefined,
+            { minimumFractionDigits: 2, maximumFractionDigits: 2 }
+          )}`
+        );
+        console.log(
+          `  Stock Value: $${(ptRecord.stockValue || 0).toLocaleString(
+            undefined,
+            { minimumFractionDigits: 2, maximumFractionDigits: 2 }
+          )}`
+        );
+        console.log(
+          `  Total Value: $${(ptRecord.totalValue || 0).toLocaleString(
+            undefined,
+            { minimumFractionDigits: 2, maximumFractionDigits: 2 }
+          )}`
+        );
       } else {
         console.log("  ❌ No PortfolioTimeseries record found");
       }
@@ -128,35 +146,71 @@ async function sanityCheck() {
       // Calculate from AccountBalances
       console.log("\n💰 ACCOUNT BALANCES:");
       if (recentBalance) {
-        const balanceDate = recentBalance.asOfDate instanceof Date ? recentBalance.asOfDate : new Date(recentBalance.asOfDate);
+        const balanceDate =
+          recentBalance.asOfDate instanceof Date
+            ? recentBalance.asOfDate
+            : new Date(recentBalance.asOfDate);
         console.log(`  Date: ${balanceDate.toISOString().split("T")[0]}`);
-        console.log(`  Cash: $${(recentBalance.cash || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
-        console.log(`  Total Equity: $${(recentBalance.totalEquity || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
-        console.log(`  Buying Power: $${(recentBalance.buyingPower || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
+        console.log(
+          `  Cash: $${(recentBalance.cash || 0).toLocaleString(undefined, {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })}`
+        );
+        console.log(
+          `  Total Equity: $${(recentBalance.totalEquity || 0).toLocaleString(
+            undefined,
+            { minimumFractionDigits: 2, maximumFractionDigits: 2 }
+          )}`
+        );
+        console.log(
+          `  Buying Power: $${(recentBalance.buyingPower || 0).toLocaleString(
+            undefined,
+            { minimumFractionDigits: 2, maximumFractionDigits: 2 }
+          )}`
+        );
       } else {
         console.log("  ❌ No AccountBalances record found");
       }
 
       // Calculate from Positions
-      console.log(`\n📈 ACCOUNT POSITIONS (${recentPositions.length} positions):`);
+      console.log(
+        `\n📈 ACCOUNT POSITIONS (${recentPositions.length} positions):`
+      );
       let totalPositionValue = 0;
       if (recentPositions.length > 0) {
-        const posDate = recentPositions[0].asOfDate instanceof Date ? recentPositions[0].asOfDate : new Date(recentPositions[0].asOfDate);
+        const posDate =
+          recentPositions[0].asOfDate instanceof Date
+            ? recentPositions[0].asOfDate
+            : new Date(recentPositions[0].asOfDate);
         console.log(`  Date: ${posDate.toISOString().split("T")[0]}`);
         recentPositions.forEach((pos, idx) => {
           const units = pos.units || 0;
           const price = pos.price || 0;
           const marketValue = units * price;
           totalPositionValue += marketValue;
-          const symbol = pos.symbolTicker || pos.positionSymbol?.symbol?.symbol || "UNKNOWN";
+          const symbol =
+            pos.symbolTicker || pos.positionSymbol?.symbol?.symbol || "UNKNOWN";
           const typeCode = pos.positionSymbol?.symbol?.type?.code || "UNKNOWN";
           if (Math.abs(marketValue) > 0.01) {
             console.log(
-              `  ${idx + 1}. ${symbol} (${typeCode}): ${units} units @ $${price.toFixed(2)} = $${marketValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+              `  ${
+                idx + 1
+              }. ${symbol} (${typeCode}): ${units} units @ $${price.toFixed(
+                2
+              )} = $${marketValue.toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}`
             );
           }
         });
-        console.log(`  Total Position Value: $${totalPositionValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
+        console.log(
+          `  Total Position Value: $${totalPositionValue.toLocaleString(
+            undefined,
+            { minimumFractionDigits: 2, maximumFractionDigits: 2 }
+          )}`
+        );
       } else {
         console.log("  ❌ No AccountPositions found");
       }
@@ -165,29 +219,48 @@ async function sanityCheck() {
       console.log(`\n🎯 OPTIONS (${recentOptions.length} options):`);
       let totalOptionsValue = 0;
       if (recentOptions.length > 0) {
-        const optDate = recentOptions[0].asOfDate instanceof Date ? recentOptions[0].asOfDate : new Date(recentOptions[0].asOfDate);
+        const optDate =
+          recentOptions[0].asOfDate instanceof Date
+            ? recentOptions[0].asOfDate
+            : new Date(recentOptions[0].asOfDate);
         console.log(`  Date: ${optDate.toISOString().split("T")[0]}`);
         recentOptions.forEach((opt, idx) => {
           const marketValue = opt.market_value || opt.marketValue || 0;
           const price = opt.price || 0;
           const units = opt.units || 0;
-          const isMini = opt.option_symbol?.is_mini_option || opt.is_mini_option || false;
+          const isMini =
+            opt.option_symbol?.is_mini_option || opt.is_mini_option || false;
           const multiplier = isMini ? 10 : 100;
           const calculatedValue = price * Math.abs(units) * multiplier;
           const value = marketValue || calculatedValue;
           totalOptionsValue += value;
-        const symbol = opt.option_symbol?.underlying_symbol?.symbol || opt.symbol || "UNKNOWN";
-        const ticker = opt.option_symbol?.ticker || "UNKNOWN";
-        const optionType = opt.option_symbol?.option_type || "UNKNOWN";
-        const strike = opt.option_symbol?.strike_price || "UNKNOWN";
-        const expiry = opt.option_symbol?.expiration_date || "UNKNOWN";
-        if (Math.abs(value) > 0.01) {
-          console.log(
-            `  ${idx + 1}. ${symbol} ${ticker} (${optionType} $${strike} exp ${expiry}): ${units} contracts @ $${price.toFixed(2)} (${isMini ? "mini" : "standard"}) = $${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-          );
-        }
+          const symbol =
+            opt.option_symbol?.underlying_symbol?.symbol ||
+            opt.symbol ||
+            "UNKNOWN";
+          const ticker = opt.option_symbol?.ticker || "UNKNOWN";
+          const optionType = opt.option_symbol?.option_type || "UNKNOWN";
+          const strike = opt.option_symbol?.strike_price || "UNKNOWN";
+          const expiry = opt.option_symbol?.expiration_date || "UNKNOWN";
+          if (Math.abs(value) > 0.01) {
+            console.log(
+              `  ${
+                idx + 1
+              }. ${symbol} ${ticker} (${optionType} $${strike} exp ${expiry}): ${units} contracts @ $${price.toFixed(
+                2
+              )} (${isMini ? "mini" : "standard"}) = $${value.toLocaleString(
+                undefined,
+                { minimumFractionDigits: 2, maximumFractionDigits: 2 }
+              )}`
+            );
+          }
         });
-        console.log(`  Total Options Value: $${totalOptionsValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
+        console.log(
+          `  Total Options Value: $${totalOptionsValue.toLocaleString(
+            undefined,
+            { minimumFractionDigits: 2, maximumFractionDigits: 2 }
+          )}`
+        );
       } else {
         console.log("  ❌ No Options found");
       }
@@ -207,10 +280,16 @@ async function sanityCheck() {
             userSecret,
             accountId
           );
-        if (Array.isArray(snapBalances)) {
-          snapTradeCash = snapBalances.reduce((sum, b) => sum + (b.cash || 0), 0);
-          snapTradeTotalEquity = snapBalances.reduce((sum, b) => sum + (b.total_equity || b.totalEquity || 0), 0);
-        }
+          if (Array.isArray(snapBalances)) {
+            snapTradeCash = snapBalances.reduce(
+              (sum, b) => sum + (b.cash || 0),
+              0
+            );
+            snapTradeTotalEquity = snapBalances.reduce(
+              (sum, b) => sum + (b.total_equity || b.totalEquity || 0),
+              0
+            );
+          }
 
           // Get positions from SnapTrade API
           const snapPositions = await accountService.listAccountPositions(
@@ -218,13 +297,13 @@ async function sanityCheck() {
             userSecret,
             accountId
           );
-        if (Array.isArray(snapPositions)) {
-          snapTradePositionsValue = snapPositions.reduce((sum, p) => {
-            const units = p.units || 0;
-            const price = p.price || 0;
-            return sum + (units * price);
-          }, 0);
-        }
+          if (Array.isArray(snapPositions)) {
+            snapTradePositionsValue = snapPositions.reduce((sum, p) => {
+              const units = p.units || 0;
+              const price = p.price || 0;
+              return sum + units * price;
+            }, 0);
+          }
 
           // Get options from SnapTrade API
           const snapOptions = await optionsService.listOptionHoldings(
@@ -232,65 +311,155 @@ async function sanityCheck() {
             userSecret,
             accountId
           );
-        if (Array.isArray(snapOptions)) {
-          snapTradeOptionsValue = snapOptions.reduce((sum, opt) => {
-            const marketValue = opt.market_value || opt.marketValue || 0;
-            const price = opt.price || 0;
-            const units = opt.units || 0;
-            const isMini = opt.option_symbol?.is_mini_option || opt.is_mini_option || false;
-            const multiplier = isMini ? 10 : 100;
-            const calculatedValue = price * Math.abs(units) * multiplier;
-            return sum + (marketValue || calculatedValue);
-          }, 0);
-        }
+          if (Array.isArray(snapOptions)) {
+            snapTradeOptionsValue = snapOptions.reduce((sum, opt) => {
+              const marketValue = opt.market_value || opt.marketValue || 0;
+              const price = opt.price || 0;
+              const units = opt.units || 0;
+              const isMini =
+                opt.option_symbol?.is_mini_option ||
+                opt.is_mini_option ||
+                false;
+              const multiplier = isMini ? 10 : 100;
+              const calculatedValue = price * Math.abs(units) * multiplier;
+              return sum + (marketValue || calculatedValue);
+            }, 0);
+          }
         } catch (apiError) {
-          console.log(`  ⚠️  Error fetching from SnapTrade API: ${apiError.message}`);
+          console.log(
+            `  ⚠️  Error fetching from SnapTrade API: ${apiError.message}`
+          );
         }
       } else {
-        console.log(`  ⚠️  No userSecret available - skipping SnapTrade API comparison`);
+        console.log(
+          `  ⚠️  No userSecret available - skipping SnapTrade API comparison`
+        );
       }
 
       // Calculate expected total from database
       const balanceCash = recentBalance?.cash || 0;
-      const calculatedTotal = balanceCash + totalPositionValue + totalOptionsValue;
+      const calculatedTotal =
+        balanceCash + totalPositionValue + totalOptionsValue;
 
       // Calculate expected total from SnapTrade API
-      const snapTradeCalculatedTotal = snapTradeCash + snapTradePositionsValue + snapTradeOptionsValue;
+      const snapTradeCalculatedTotal =
+        snapTradeCash + snapTradePositionsValue + snapTradeOptionsValue;
 
       console.log("\n" + "=".repeat(80));
       console.log("📊 COMPARISON:");
       console.log("=".repeat(80));
-      
+
       console.log(`\n1️⃣  PortfolioTimeseries (TWR Calculated):`);
-      console.log(`  Total Value: $${(ptRecord?.totalValue || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
-      console.log(`  Cash Value: $${(ptRecord?.cashValue || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
-      console.log(`  Stock Value: $${(ptRecord?.stockValue || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
+      console.log(
+        `  Total Value: $${(ptRecord?.totalValue || 0).toLocaleString(
+          undefined,
+          { minimumFractionDigits: 2, maximumFractionDigits: 2 }
+        )}`
+      );
+      console.log(
+        `  Cash Value: $${(ptRecord?.cashValue || 0).toLocaleString(undefined, {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        })}`
+      );
+      console.log(
+        `  Stock Value: $${(ptRecord?.stockValue || 0).toLocaleString(
+          undefined,
+          { minimumFractionDigits: 2, maximumFractionDigits: 2 }
+        )}`
+      );
 
       console.log(`\n2️⃣  SnapTrade API (LIVE Current Value):`);
-      console.log(`  Total Equity: $${snapTradeTotalEquity.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
-      console.log(`  Cash: $${snapTradeCash.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
-      console.log(`  Positions Value: $${snapTradePositionsValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
-      console.log(`  Options Value: $${snapTradeOptionsValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
-      console.log(`  Calculated Total (Cash + Positions + Options): $${snapTradeCalculatedTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
+      console.log(
+        `  Total Equity: $${snapTradeTotalEquity.toLocaleString(undefined, {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        })}`
+      );
+      console.log(
+        `  Cash: $${snapTradeCash.toLocaleString(undefined, {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        })}`
+      );
+      console.log(
+        `  Positions Value: $${snapTradePositionsValue.toLocaleString(
+          undefined,
+          { minimumFractionDigits: 2, maximumFractionDigits: 2 }
+        )}`
+      );
+      console.log(
+        `  Options Value: $${snapTradeOptionsValue.toLocaleString(undefined, {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        })}`
+      );
+      console.log(
+        `  Calculated Total (Cash + Positions + Options): $${snapTradeCalculatedTotal.toLocaleString(
+          undefined,
+          { minimumFractionDigits: 2, maximumFractionDigits: 2 }
+        )}`
+      );
 
       console.log(`\n3️⃣  Database Components (for reference):`);
-      console.log(`  Cash (from AccountBalances): $${balanceCash.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
-      console.log(`  Positions Value: $${totalPositionValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
-      console.log(`  Options Value: $${totalOptionsValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
-      console.log(`  Calculated Total: $${calculatedTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
+      console.log(
+        `  Cash (from AccountBalances): $${balanceCash.toLocaleString(
+          undefined,
+          { minimumFractionDigits: 2, maximumFractionDigits: 2 }
+        )}`
+      );
+      console.log(
+        `  Positions Value: $${totalPositionValue.toLocaleString(undefined, {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        })}`
+      );
+      console.log(
+        `  Options Value: $${totalOptionsValue.toLocaleString(undefined, {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        })}`
+      );
+      console.log(
+        `  Calculated Total: $${calculatedTotal.toLocaleString(undefined, {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        })}`
+      );
 
       // Compare PortfolioTimeseries with SnapTrade API
-      const differenceVsSnapTrade = (ptRecord?.totalValue || 0) - snapTradeCalculatedTotal;
-      const differenceVsDatabase = (ptRecord?.totalValue || 0) - calculatedTotal;
+      const differenceVsSnapTrade =
+        (ptRecord?.totalValue || 0) - snapTradeCalculatedTotal;
+      const differenceVsDatabase =
+        (ptRecord?.totalValue || 0) - calculatedTotal;
       console.log(`\n"${"=".repeat(80)}"`);
       console.log(`📈 KEY COMPARISONS:`);
       console.log(`"${"=".repeat(80)}"`);
-      console.log(`PortfolioTimeseries vs SnapTrade API: $${differenceVsSnapTrade.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
+      console.log(
+        `PortfolioTimeseries vs SnapTrade API: $${differenceVsSnapTrade.toLocaleString(
+          undefined,
+          { minimumFractionDigits: 2, maximumFractionDigits: 2 }
+        )}`
+      );
       if (Math.abs(differenceVsSnapTrade) > 0.01) {
-        const missingFromPT = snapTradeCalculatedTotal - (ptRecord?.totalValue || 0);
-        console.log(`  → PortfolioTimeseries is missing: $${missingFromPT.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
-        if (snapTradeOptionsValue > 0 && (ptRecord?.stockValue || 0) === snapTradePositionsValue) {
-          console.log(`  🔍 Options value ($${snapTradeOptionsValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}) is likely missing from PortfolioTimeseries!`);
+        const missingFromPT =
+          snapTradeCalculatedTotal - (ptRecord?.totalValue || 0);
+        console.log(
+          `  → PortfolioTimeseries is missing: $${missingFromPT.toLocaleString(
+            undefined,
+            { minimumFractionDigits: 2, maximumFractionDigits: 2 }
+          )}`
+        );
+        if (
+          snapTradeOptionsValue > 0 &&
+          (ptRecord?.stockValue || 0) === snapTradePositionsValue
+        ) {
+          console.log(
+            `  🔍 Options value ($${snapTradeOptionsValue.toLocaleString(
+              undefined,
+              { minimumFractionDigits: 2, maximumFractionDigits: 2 }
+            )}) is likely missing from PortfolioTimeseries!`
+          );
         }
       }
 
@@ -299,20 +468,51 @@ async function sanityCheck() {
 
       // Final verdict
       if (Math.abs(differenceVsSnapTrade) < 0.01) {
-        console.log(`\n✅ PERFECT MATCH - PortfolioTimeseries matches SnapTrade API!`);
-        console.log(`   TWR calculation is producing correct current portfolio value.`);
+        console.log(
+          `\n✅ PERFECT MATCH - PortfolioTimeseries matches SnapTrade API!`
+        );
+        console.log(
+          `   TWR calculation is producing correct current portfolio value.`
+        );
       } else if (Math.abs(differenceVsSnapTrade) < 100) {
-        console.log(`\n⚠️  SMALL DIFFERENCE - May be due to rounding, timing, or data sync delay`);
+        console.log(
+          `\n⚠️  SMALL DIFFERENCE - May be due to rounding, timing, or data sync delay`
+        );
       } else {
-        console.log(`\n❌ SIGNIFICANT MISMATCH - PortfolioTimeseries does not match SnapTrade API`);
+        console.log(
+          `\n❌ SIGNIFICANT MISMATCH - PortfolioTimeseries does not match SnapTrade API`
+        );
         if (snapTradeOptionsValue > 0) {
           console.log(`\n🔍 ROOT CAUSE ANALYSIS:`);
-          console.log(`   SnapTrade Options Value: $${snapTradeOptionsValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
-          console.log(`   PortfolioTimeseries Stock Value: $${(ptRecord?.stockValue || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
-          console.log(`   SnapTrade Positions Value: $${snapTradePositionsValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
-          if (Math.abs((ptRecord?.stockValue || 0) - snapTradePositionsValue) < 10) {
-            console.log(`   ✅ Stock positions match - Options are the missing piece!`);
-            console.log(`   💡 Fix: Include options in PortfolioTimeseries calculation`);
+          console.log(
+            `   SnapTrade Options Value: $${snapTradeOptionsValue.toLocaleString(
+              undefined,
+              { minimumFractionDigits: 2, maximumFractionDigits: 2 }
+            )}`
+          );
+          console.log(
+            `   PortfolioTimeseries Stock Value: $${(
+              ptRecord?.stockValue || 0
+            ).toLocaleString(undefined, {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            })}`
+          );
+          console.log(
+            `   SnapTrade Positions Value: $${snapTradePositionsValue.toLocaleString(
+              undefined,
+              { minimumFractionDigits: 2, maximumFractionDigits: 2 }
+            )}`
+          );
+          if (
+            Math.abs((ptRecord?.stockValue || 0) - snapTradePositionsValue) < 10
+          ) {
+            console.log(
+              `   ✅ Stock positions match - Options are the missing piece!`
+            );
+            console.log(
+              `   💡 Fix: Include options in PortfolioTimeseries calculation`
+            );
           }
         }
       }
@@ -330,4 +530,3 @@ async function sanityCheck() {
 }
 
 sanityCheck();
-

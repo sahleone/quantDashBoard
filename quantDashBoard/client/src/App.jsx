@@ -24,7 +24,7 @@ import AssetAllocation from "./pages/assetAllocation/AssetAllocation";
 import Dividends from "./pages/dividends/Dividends";
 import NotFound from "./pages/notFound/NotFound.jsx";
 
-import Logout from "./components/Logout";
+import Logout from "./components/auth/Logout";
 import ProtectedRoutes from "./utils/ProtectedRoutes.jsx";
 
 // layouts

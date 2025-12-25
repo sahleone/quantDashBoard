@@ -22,6 +22,7 @@ import {
   calculateFactorMetrics,
   calculateMaxDrawdown,
 } from "../utils/metricsCalculations.js";
+import { calculateTWRFromDailyReturns } from "../metrics/helpers/returnsMetrics.js";
 
 /**
  * Metrics Controller
@@ -57,10 +58,8 @@ class MetricsController {
    */
   async getPortfolioValue(req, res) {
     try {
-      // Get userId from authenticated user (set by auth middleware) or request body
       const userId = req.user?.userId || req.body?.userId;
 
-      // Validate required parameters
       if (!userId) {
         return res.status(400).json({
           error: {
@@ -77,10 +76,8 @@ class MetricsController {
         }`
       );
 
-      // Calculate date range
       const { startDate, endDate } = this.calculateDateRange(range);
 
-      // Build query - filter by accountId if provided
       const query = {
         userId,
         date: { $gte: startDate, $lte: endDate },
@@ -89,8 +86,6 @@ class MetricsController {
         query.accountId = accountId;
       }
 
-      // Get portfolio timeseries data for the range
-      // Aggregate totalValue across selected accounts for the user by date
       const timeseriesData = await PortfolioTimeseries.find(query).sort({
         date: 1,
       });
@@ -99,7 +94,6 @@ class MetricsController {
         `Found ${timeseriesData.length} portfolio timeseries records for user ${userId} in range ${range}`
       );
 
-      // If no data, return empty response instead of error
       if (!timeseriesData || timeseriesData.length === 0) {
         console.log(
           `No portfolio timeseries data found for user ${userId}. User may need to run metrics pipeline.`
@@ -117,11 +111,10 @@ class MetricsController {
         });
       }
 
-      // Aggregate portfolio values by date (sum across all accounts for the user)
       const portfolioByDate = new Map();
-      // Track latest TWR metrics (from most recent date)
       let latestTWRMetrics = null;
       let latestDate = null;
+      let rangeTWRReturn = null;
 
       timeseriesData.forEach((record) => {
         const dateKey = record.date.toISOString().split("T")[0];
@@ -134,7 +127,6 @@ class MetricsController {
         existing.cashFlow += record.depositWithdrawal || 0;
         portfolioByDate.set(dateKey, existing);
 
-        // Track latest TWR metrics (most recent date with TWR data)
         const recordDate = new Date(record.date);
         const hasTWRData =
           (record.twr1Day !== null && record.twr1Day !== undefined) ||
@@ -145,18 +137,42 @@ class MetricsController {
 
         if (hasTWRData && (!latestDate || recordDate >= latestDate)) {
           latestDate = recordDate;
-          // For multiple accounts, use the most recent account's TWR metrics
-          // In the future, this could be aggregated or weighted
           latestTWRMetrics = {
             twr1Day: record.twr1Day,
             twr3Months: record.twr3Months,
             twrYearToDate: record.twrYearToDate,
             twrAllTime: record.twrAllTime,
           };
+
+          // Get the appropriate TWR return for the selected range
+          const rangeUpper = range.toUpperCase();
+          switch (rangeUpper) {
+            case "3M":
+              rangeTWRReturn = record.twr3Months;
+              break;
+            case "YTD":
+              rangeTWRReturn = record.twrYearToDate;
+              break;
+            case "ALL":
+            case "ITD":
+            case "ALLTIME":
+              rangeTWRReturn = record.twrAllTime;
+              break;
+            case "1M":
+            case "1Y":
+              // For 1M and 1Y, calculate from dailyTWRReturn
+              rangeTWRReturn = calculateTWRFromDailyReturns(
+                timeseriesData,
+                startDate,
+                endDate
+              );
+              break;
+            default:
+              rangeTWRReturn = record.twrAllTime;
+          }
         }
       });
 
-      // Convert to array and sort by date
       const portfolioValues = Array.from(portfolioByDate.values())
         .map((point) => ({
           date: point.date,
@@ -172,7 +188,10 @@ class MetricsController {
         summary: {
           startValue: portfolioValues[0]?.equity || 0,
           endValue: portfolioValues[portfolioValues.length - 1]?.equity || 0,
-          totalReturn: this.calculateTimeWeightedReturn(portfolioValues),
+          totalReturn:
+            rangeTWRReturn !== null && rangeTWRReturn !== undefined
+              ? rangeTWRReturn
+              : this.calculateTimeWeightedReturn(portfolioValues),
           dataPoints: portfolioValues.length,
         },
         twrMetrics: latestTWRMetrics || null,
@@ -208,10 +227,8 @@ class MetricsController {
    */
   async getPerformance(req, res) {
     try {
-      // Get userId from authenticated user (set by auth middleware) or request body
       const userId = req.user?.userId || req.body?.userId;
 
-      // Validate required parameters
       if (!userId) {
         return res.status(400).json({
           error: {
@@ -221,7 +238,7 @@ class MetricsController {
         });
       }
 
-      const { range = "ITD", accountId } = req.query;
+      const { range = "ALL", accountId } = req.query;
       const period = this.mapRangeToPeriod(range);
 
       console.log(
@@ -230,7 +247,6 @@ class MetricsController {
         }`
       );
 
-      // Try to get metrics from database first
       const today = new Date();
       today.setHours(0, 0, 0, 0);
 
@@ -244,7 +260,6 @@ class MetricsController {
         });
       }
 
-      // If found in database, return it
       if (metricsDoc && metricsDoc.metrics) {
         const perf = {
           totalReturn: metricsDoc.metrics.totalReturn || null,
@@ -264,7 +279,6 @@ class MetricsController {
         });
       }
 
-      // If not in database, calculate from PortfolioTimeseries
       const { startDate } = this.calculateDateRange(range);
       const query = {
         userId,
@@ -295,7 +309,35 @@ class MetricsController {
         });
       }
 
-      // Extract returns and cumulative values
+      // Try to use pre-calculated TWR field from latest record
+      const latest = portfolioData[portfolioData.length - 1];
+      let twrReturn = null;
+      const rangeUpper = range.toUpperCase();
+      switch (rangeUpper) {
+        case "3M":
+          twrReturn = latest.twr3Months;
+          break;
+        case "YTD":
+          twrReturn = latest.twrYearToDate;
+          break;
+        case "ALL":
+        case "ITD":
+        case "ALLTIME":
+          twrReturn = latest.twrAllTime;
+          break;
+        case "1M":
+        case "1Y":
+          // For 1M and 1Y, calculate from dailyTWRReturn
+          twrReturn = calculateTWRFromDailyReturns(
+            portfolioData,
+            startDate,
+            today
+          );
+          break;
+        default:
+          twrReturn = null;
+      }
+
       const returns = portfolioData
         .map((pt) => pt.simpleReturns || pt.dailyTWRReturn)
         .filter((r) => r !== null && r !== undefined && !isNaN(r));
@@ -321,8 +363,7 @@ class MetricsController {
         });
       }
 
-      // Calculate performance metrics
-      const periodsPerYear = 252; // Daily returns
+      const periodsPerYear = 252;
       const perfMetrics = calculatePerformanceMetrics(
         returns,
         cumulativeReturns,
@@ -330,11 +371,17 @@ class MetricsController {
         this.riskFreeRate
       );
 
-      // Calculate total return and CAGR
       const firstValue = portfolioData[0].totalValue || 0;
       const lastValue = portfolioData[portfolioData.length - 1].totalValue || 0;
-      const totalReturn =
-        firstValue > 0 ? (lastValue - firstValue) / firstValue : 0;
+
+      // Use pre-calculated TWR if available, otherwise fall back to point-to-point return
+      let totalReturn;
+      if (twrReturn !== null && twrReturn !== undefined && !isNaN(twrReturn)) {
+        totalReturn = twrReturn;
+      } else {
+        totalReturn =
+          firstValue > 0 ? (lastValue - firstValue) / firstValue : 0;
+      }
 
       const days = (today - startDate) / (1000 * 60 * 60 * 24);
       const years = days / 365.25;
@@ -346,11 +393,10 @@ class MetricsController {
         sharpe: perfMetrics.sharpe,
         sortino: perfMetrics.sortino,
         calmar: perfMetrics.calmar,
-        alpha: null, // Alpha requires benchmark, calculated in factor metrics
-        volatility: null, // Volatility is in risk metrics
+        alpha: null,
+        volatility: null,
       };
 
-      // Store in database if accountId is provided
       if (accountId && returns.length >= 2) {
         try {
           await Metrics.findOneAndUpdate(
@@ -418,10 +464,8 @@ class MetricsController {
    */
   async getRiskMetrics(req, res) {
     try {
-      // Get userId from authenticated user (set by auth middleware) or request body
       const userId = req.user?.userId || req.body?.userId;
 
-      // Validate required parameters
       if (!userId) {
         return res.status(400).json({
           error: {
@@ -441,7 +485,6 @@ class MetricsController {
         }`
       );
 
-      // Try to get metrics from database first
       const today = new Date();
       today.setHours(0, 0, 0, 0);
 
@@ -455,7 +498,6 @@ class MetricsController {
         });
       }
 
-      // If found in database, return it
       if (metricsDoc && metricsDoc.metrics) {
         const risk = {
           volatility: metricsDoc.metrics.volatility || null,
@@ -477,7 +519,6 @@ class MetricsController {
         });
       }
 
-      // If not in database, calculate from PortfolioTimeseries
       const { startDate } = this.calculateDateRange(range);
       const query = {
         userId,
@@ -509,7 +550,6 @@ class MetricsController {
         });
       }
 
-      // Extract returns and cumulative values
       const returns = portfolioData
         .map((pt) => pt.simpleReturns || pt.dailyTWRReturn)
         .filter((r) => r !== null && r !== undefined && !isNaN(r));
@@ -630,10 +670,8 @@ class MetricsController {
    */
   async getFactorExposures(req, res) {
     try {
-      // Get userId from authenticated user (set by auth middleware) or request body
       const userId = req.user?.userId || req.body?.userId;
 
-      // Validate required parameters
       if (!userId) {
         return res.status(400).json({
           error: {
@@ -706,10 +744,8 @@ class MetricsController {
    */
   async getKPIs(req, res) {
     try {
-      // Get userId from authenticated user (set by auth middleware) or request body
       const userId = req.user?.userId || req.body?.userId;
 
-      // Validate required parameters
       if (!userId) {
         return res.status(400).json({
           error: {
@@ -777,10 +813,8 @@ class MetricsController {
    */
   async getTimeSeries(req, res) {
     try {
-      // Get userId from authenticated user (set by auth middleware) or request body
       const userId = req.user?.userId || req.body?.userId;
 
-      // Validate required parameters
       if (!userId) {
         return res.status(400).json({
           error: {
@@ -848,9 +882,9 @@ class MetricsController {
       case "ITD":
       case "ALL":
       case "ALLTIME":
-        return "ITD";
+        return "ALL";
       default:
-        return "ITD";
+        return "ALL";
     }
   }
 
@@ -874,10 +908,8 @@ class MetricsController {
       case "1Y":
         startDate.setFullYear(now.getFullYear() - 1);
         break;
-      case "ITD":
-        startDate.setFullYear(2020); // Start from 2020 for ITD
-        break;
       case "ALL":
+      case "ITD":
       case "ALLTIME":
         startDate.setFullYear(1970, 0, 1); // Start from 1970 for All Time
         break;
@@ -1353,7 +1385,7 @@ class MetricsController {
       // Dynamically import the pipeline function
       // Path is relative to server/src/controllers/
       const { runMetricsPipeline } = await import(
-        "../../../../metrics/runMetricsPipeline.js"
+        "../metrics/runMetricsPipeline.js"
       );
 
       // Run the pipeline

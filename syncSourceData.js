@@ -32,7 +32,9 @@ async function syncSourceData() {
     const userIds = await PortfolioTimeseries.distinct("userId");
     const accountIds = await PortfolioTimeseries.distinct("accountId");
 
-    console.log(`Found ${userIds.length} users and ${accountIds.length} accounts\n`);
+    console.log(
+      `Found ${userIds.length} users and ${accountIds.length} accounts\n`
+    );
     console.log("=".repeat(80));
 
     for (const userId of userIds) {
@@ -43,7 +45,9 @@ async function syncSourceData() {
       const Users = db.collection("users");
       const user = await Users.findOne({ userId });
       if (!user || !user.userSecret) {
-        console.log(`  ⚠️  No userSecret found for user ${userId}, skipping...`);
+        console.log(
+          `  ⚠️  No userSecret found for user ${userId}, skipping...`
+        );
         continue;
       }
 
@@ -136,16 +140,11 @@ async function syncSourceData() {
                 { upsert: true }
               );
             } catch (optError) {
-              console.error(
-                `    ⚠️  Error saving option:`,
-                optError.message
-              );
+              console.error(`    ⚠️  Error saving option:`, optError.message);
             }
           }
 
-          console.log(
-            `    ✅ Saved ${optionHoldings.length} option positions`
-          );
+          console.log(`    ✅ Saved ${optionHoldings.length} option positions`);
         } catch (error) {
           console.error(
             `    ❌ Error syncing options for account ${accountId}:`,
@@ -172,4 +171,3 @@ async function syncSourceData() {
 }
 
 syncSourceData();
-

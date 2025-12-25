@@ -2,17 +2,17 @@ import mongoose from "mongoose";
 
 /**
  * Metrics model
- * 
+ *
  * Stores calculated portfolio metrics for different periods.
  * Supports both old schema (for backward compatibility) and new schema.
- * 
+ *
  * New schema:
  * - userId: User identifier (required, indexed)
  * - accountId: Account identifier (required, indexed)
  * - date: As-of date for metrics (required, indexed)
- * - period: Period type ('1M', '3M', 'YTD', '1Y', 'ITD') (required, indexed)
+ * - period: Period type ('1M', '3M', 'YTD', '1Y', 'ALL') (required, indexed)
  * - metrics: Object containing all calculated metrics
- * 
+ *
  * Old schema (backward compatibility):
  * - asOfDate: Date (required)
  * - accountId: String (required)
@@ -33,7 +33,7 @@ const metricsSchema = new mongoose.Schema(
     },
     period: {
       type: String,
-      enum: ["1M", "3M", "YTD", "1Y", "ITD"],
+      enum: ["1M", "3M", "YTD", "1Y", "ALL"],
       index: true,
       default: null,
     },
@@ -113,7 +113,10 @@ metricsSchema.index(
 );
 
 // Old compound index (for backward compatibility)
-metricsSchema.index({ asOfDate: 1, accountId: 1 }, { unique: true, sparse: true });
+metricsSchema.index(
+  { asOfDate: 1, accountId: 1 },
+  { unique: true, sparse: true }
+);
 
 const Metrics = mongoose.model("SnapTradeMetrics", metricsSchema);
 

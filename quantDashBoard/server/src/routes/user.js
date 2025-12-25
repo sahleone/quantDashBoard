@@ -11,11 +11,10 @@
 
 import express from "express";
 import authController from "../controllers/authController.js";
-import { requireAuth } from "../middleware/authmiddleware.js";
+import { requireAuth } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
-// Apply authentication middleware to all user routes
 router.use(requireAuth);
 
 /**

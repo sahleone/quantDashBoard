@@ -12,11 +12,10 @@
 
 import express from "express";
 import snapTradeController from "../controllers/snapTradeController.js";
-import { requireAuth } from "../middleware/authmiddleware.js";
+import { requireAuth } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
-// Apply authentication middleware to all SnapTrade routes
 router.use(requireAuth);
 
 /**

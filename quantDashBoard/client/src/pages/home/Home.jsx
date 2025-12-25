@@ -1,7 +1,7 @@
 import "./Home.css";
 import QuantDashLogo from "../../assets/QuantDash.png";
 import { useState } from "react";
-import Signup from "../../components/Signup";
+import Signup from "../auth/Signup";
 import Login from "../../components/login/Login";
 
 function Home() {
@@ -10,7 +10,6 @@ function Home() {
   return (
     <div className="home">
       <div className="home-branding">
-        {/* Placeholder logo, replace src with your actual logo path */}
         <img
           src={QuantDashLogo}
           alt="Quant Dashboard Logo"

@@ -13,12 +13,11 @@
 
 import express from "express";
 import accountsController from "../controllers/accountsController.js";
-import { requireAuth } from "../middleware/authmiddleware.js";
+import { requireAuth } from "../middleware/authMiddleware.js";
 import updateAccountsForUser from "../utils/updateAccounts.js";
 
 const router = express.Router();
 
-// Apply authentication middleware to all account routes
 router.use(requireAuth);
 
 /**
@@ -77,14 +76,6 @@ router.get("/activities", (req, res) => {
 router.get("/dividends/by-month", (req, res) => {
   accountsController.getDividendsByMonth(req, res);
 });
-
-// NOTE: options chain is provided by /api/snaptrade/options/chain via snapTradeController
-
-/**
- * Get Account Return Rates
- * GET /api/accounts/:accountId/returnRates
- */
-// Return rates endpoints removed — functionality deprecated and removed.
 
 /**
  * Sync Holdings Data from SnapTrade
@@ -147,9 +138,6 @@ router.get("/positions/:symbol", (req, res) => {
  * Refresh Account Data from SnapTrade
  */
 router.post("/refresh", async (req, res) => {
-  // Prefer explicit body values but fall back to authenticated user from
-  // the requireAuth middleware. This allows the client to call the refresh
-  // endpoint without sending the userSecret in the body (jwt is used).
   const userId = req.body.userId || req.user?.userId;
   const userSecret = req.body.userSecret || req.user?.userSecret;
 

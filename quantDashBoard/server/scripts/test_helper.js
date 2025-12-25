@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 import Activities from "../src/models/AccountActivities.js";
-import getLastActivityDate from "../../../../metrics/helpers/helper.js";
+import getLastActivityDate from "../src/metrics/helpers/helper.js";
 import { config } from "../src/config/environment.js";
 
 async function run() {

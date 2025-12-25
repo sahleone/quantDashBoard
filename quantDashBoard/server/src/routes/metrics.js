@@ -13,11 +13,10 @@
 
 import express from "express";
 import metricsController from "../controllers/metricsController.js";
-import { requireAuth } from "../middleware/authmiddleware.js";
+import { requireAuth } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
-// Apply authentication middleware to all metrics routes
 router.use(requireAuth);
 
 /**
