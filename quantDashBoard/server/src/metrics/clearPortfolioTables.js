@@ -15,14 +15,8 @@ import { runMetricsPipeline } from "./runMetricsPipeline.js";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Load .env file from project root (two levels up from this file: src/metrics -> src -> server -> root)
-const envPath = join(__dirname, "../../../.env");
-dotenv.config({ path: envPath });
-
-// Fallback: also try loading from server directory
-if (!process.env.DATABASE_URL) {
-  dotenv.config({ path: join(__dirname, "../../.env") });
-}
+// Load .env from server/src/.env (one level up from metrics/)
+dotenv.config({ path: join(__dirname, "../.env") });
 
 const databaseUrl =
   process.env.DATABASE_URL || "mongodb://localhost:27017/quantDashboard";

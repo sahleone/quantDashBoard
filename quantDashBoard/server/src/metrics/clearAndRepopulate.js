@@ -6,12 +6,17 @@
 
 import dotenv from "dotenv";
 import mongoose from "mongoose";
+import { fileURLToPath } from "url";
+import { dirname, join } from "path";
 import { updateAccountActivitiesTable } from "./updateTable/updateActivitiesTable.js";
 import { updateEquitiesWeightTable } from "./updateTable/updateEquitiesWeightTable.js";
 import { runMetricsPipeline } from "./runMetricsPipeline.js";
 
-// Load .env file if it exists
-dotenv.config();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+// Load .env from server/src/.env (one level up from metrics/)
+dotenv.config({ path: join(__dirname, "../.env") });
 
 const databaseUrl =
   process.env.DATABASE_URL ||

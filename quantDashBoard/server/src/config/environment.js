@@ -6,11 +6,7 @@ import { dirname, join } from "path";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Load .env from common locations to be resilient in local setups.
-// Order: process.cwd() (default), src/.env, parent (server)/.env.
-dotenv.config();
-// Try src/.env and server/.env (no-op if file not present)
-dotenv.config({ path: join(__dirname, ".env") });
+// Load .env from server/src/.env (one level up from config/)
 dotenv.config({ path: join(__dirname, "..", ".env") });
 
 if (
