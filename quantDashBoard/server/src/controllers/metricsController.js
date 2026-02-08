@@ -843,6 +843,16 @@ class MetricsController {
         range
       );
 
+      if (!factorExposures) {
+        return res.status(501).json({
+          error: {
+            code: "FACTOR_NOT_IMPLEMENTED",
+            message:
+              "Factor exposure calculation is not yet implemented. Requires factor return data and regression analysis.",
+          },
+        });
+      }
+
       res.status(200).json({
         model: model,
         range: range,
@@ -1416,7 +1426,7 @@ class MetricsController {
    */
   calculateVaR(returns, confidence) {
     if (returns.length < 2) return 0;
-    const sortedReturns = returns.sort((a, b) => a - b);
+    const sortedReturns = [...returns].sort((a, b) => a - b);
     const index = Math.floor((1 - confidence) * sortedReturns.length);
     return sortedReturns[index] || 0;
   }
@@ -1456,31 +1466,9 @@ class MetricsController {
    * Calculate factor exposures
    */
   calculateFactorExposures(holdings, model, range) {
-    // This is a placeholder - would need factor data and regression analysis
-    const exposures = {
-      market: 0.94,
-      smb: 0.12,
-      hml: -0.08,
-    };
-
-    if (model === "FF5") {
-      exposures.rmw = 0.05;
-      exposures.cma = -0.03;
-    }
-
-    if (model === "Carhart") {
-      exposures.momentum = 0.15;
-    }
-
-    return {
-      exposures: exposures,
-      statistics: {
-        rSquared: 0.85,
-        adjRSquared: 0.82,
-        fStatistic: 45.2,
-        pValue: 0.001,
-      },
-    };
+    // TODO: Implement with actual factor data (e.g. Fama-French from Ken French's data library)
+    // and OLS regression against portfolio returns. Returning null until implemented.
+    return null;
   }
 
   /**
@@ -1504,7 +1492,7 @@ class MetricsController {
     return {
       sharpe: sharpe,
       sortino: sortino,
-      beta: 0.94, // Placeholder
+      beta: null, // TODO: requires benchmark returns and regression to compute
       maxDrawdown: maxDrawdown,
       cagr: cagr,
       volatility: volatility,

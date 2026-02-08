@@ -447,6 +447,8 @@ export async function calculateMetrics(opts = {}) {
                   period: period,
                   metrics: metrics,
                   computedAtUtc: new Date(),
+                },
+                $setOnInsert: {
                   createdAt: new Date(),
                 },
               },
@@ -489,8 +491,6 @@ export async function calculateMetrics(opts = {}) {
   } catch (error) {
     console.error("Error in calculateMetrics:", error);
     throw error;
-  } finally {
-    await mongoose.disconnect();
   }
 
   return summary;
@@ -520,6 +520,8 @@ if (
     } catch (err) {
       console.error("calculateMetrics failed:", err);
       process.exit(2);
+    } finally {
+      await mongoose.disconnect();
     }
   })();
 }

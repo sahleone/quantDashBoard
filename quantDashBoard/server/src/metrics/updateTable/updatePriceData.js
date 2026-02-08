@@ -26,6 +26,7 @@ import EquitiesWeightTimeseries from "../../models/EquitiesWeightTimeseries.js";
 import {
   fetchHistoricalPrices,
   fetchMultipleSymbols,
+  isCryptoSymbol,
 } from "../../utils/yahooFinanceClient.js";
 
 /**
@@ -134,28 +135,7 @@ function isOptionSymbol(symbol) {
   return symbol.includes(" ") && symbol.trim() !== symbol.replace(/\s+/g, "");
 }
 
-/**
- * Check if a symbol is a crypto symbol that needs "-USD" suffix
- * Uses the same CRYPTO_SYMBOLS set as yahooFinanceClient
- */
-function isCryptoSymbol(symbol) {
-  // Remove spaces first (for option tickers that might have spaces)
-  const cleanSymbol = symbol.replace(/\s+/g, "").toUpperCase();
-  
-  // Common cryptocurrency symbols that need "-USD" suffix for Yahoo Finance
-  const CRYPTO_SYMBOLS = new Set([
-    "BTC", "ETH", "LTC", "XRP", "BCH", "EOS", "XLM", "XTZ", "ADA", "DOT",
-    "LINK", "UNI", "AAVE", "SOL", "MATIC", "AVAX", "ATOM", "ALGO", "FIL",
-    "DOGE", "SHIB", "USDC", "USDT", "DAI", "BAT", "ZEC", "XMR", "DASH",
-    "ETC", "TRX", "VET", "THETA", "ICP", "FTM", "NEAR", "APT", "ARB",
-    "OP", "SUI", "SEI", "TIA", "INJ", "MKR", "COMP", "SNX", "CRV", "YFI",
-    "SUSHI", "1INCH", "ENJ", "MANA", "SAND", "AXS", "GALA", "CHZ", "FLOW",
-    "GRT", "ANKR", "SKL", "NU", "CGLD", "OXT", "UMA", "FORTH", "ETH2",
-    "CBETH", "BAND", "NMR"
-  ]);
-  
-  return CRYPTO_SYMBOLS.has(cleanSymbol) && !cleanSymbol.endsWith("-USD");
-}
+// isCryptoSymbol imported from yahooFinanceClient (single source of truth)
 
 /**
  * Process a single symbol: fetch missing prices and store them
@@ -231,6 +211,8 @@ async function processSymbol(symbol, opts = {}) {
             high: price.high || null,
             low: price.low || null,
             volume: price.volume || null,
+          },
+          $setOnInsert: {
             createdAt: new Date(),
           },
         },
@@ -305,7 +287,6 @@ export async function updatePriceData(opts = {}) {
 
     if (symbols.length === 0) {
       console.log("No symbols found in EquitiesWeightTimeseries");
-      await mongoose.disconnect();
       return summary;
     }
 
@@ -406,8 +387,6 @@ export async function updatePriceData(opts = {}) {
   } catch (error) {
     console.error("Error in updatePriceData:", error);
     throw error;
-  } finally {
-    await mongoose.disconnect();
   }
 
   return summary;
@@ -440,6 +419,8 @@ if (
     } catch (err) {
       console.error("updatePriceData failed:", err);
       process.exit(2);
+    } finally {
+      await mongoose.disconnect();
     }
   })();
 }

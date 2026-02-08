@@ -32,15 +32,20 @@ class ValidationResult {
 }
 
 /**
- * Check AUM sanity (portfolio value within expected range)
+ * Fetch portfolio timeseries for an account (shared across checks).
  */
-async function checkAUMSanity(accountId, db) {
+async function fetchPortfolioTimeseries(accountId, db) {
   const portfolioCollection = db.collection("portfoliotimeseries");
-  const portfolios = await portfolioCollection
+  return portfolioCollection
     .find({ accountId: accountId })
     .sort({ date: 1 })
     .toArray();
+}
 
+/**
+ * Check AUM sanity (portfolio value within expected range)
+ */
+async function checkAUMSanity(accountId, db, portfolios) {
   const results = [];
 
   for (const pt of portfolios) {
@@ -151,13 +156,7 @@ async function checkMissingPrices(accountId, db) {
 /**
  * Check for data gaps in portfolio timeseries
  */
-async function checkDataGaps(accountId, db) {
-  const portfolioCollection = db.collection("portfoliotimeseries");
-  const portfolios = await portfolioCollection
-    .find({ accountId: accountId })
-    .sort({ date: 1 })
-    .toArray();
-
+async function checkDataGaps(accountId, db, portfolios) {
   const results = [];
   const gaps = [];
 
@@ -205,13 +204,7 @@ async function checkDataGaps(accountId, db) {
 /**
  * Check consistency: totalValue = stockValue + cashValue
  */
-async function checkConsistency(accountId, db) {
-  const portfolioCollection = db.collection("portfoliotimeseries");
-  const portfolios = await portfolioCollection
-    .find({ accountId: accountId })
-    .sort({ date: 1 })
-    .toArray();
-
+async function checkConsistency(accountId, db, portfolios) {
   const results = [];
   const inconsistencies = [];
 
@@ -379,27 +372,30 @@ export async function validateMetrics(opts = {}) {
 
     if (accounts.length === 0) {
       console.log("No accounts found to validate");
-      await mongoose.disconnect();
       return summary;
     }
 
     console.log(`Validating ${accounts.length} account(s)`);
 
-    // Run all validation checks for each account
-    const checks = [
-      checkAUMSanity,
-      checkMissingPrices,
-      checkDataGaps,
-      checkConsistency,
-      checkPositionConsistency,
-    ];
+    // Checks that need portfolio timeseries data (fetched once per account)
+    const portfolioChecks = [checkAUMSanity, checkDataGaps, checkConsistency];
+    // Checks that fetch their own data
+    const otherChecks = [checkMissingPrices, checkPositionConsistency];
 
     for (const acctId of accounts) {
       console.log(`Validating account ${acctId}...`);
 
-      for (const checkFn of checks) {
+      // Fetch portfolio timeseries once and share across checks
+      const portfolios = await fetchPortfolioTimeseries(acctId, db);
+
+      const allChecks = [
+        ...portfolioChecks.map((fn) => ({ fn, args: [acctId, db, portfolios] })),
+        ...otherChecks.map((fn) => ({ fn, args: [acctId, db] })),
+      ];
+
+      for (const { fn: checkFn, args } of allChecks) {
         try {
-          const checkResults = await checkFn(acctId, db);
+          const checkResults = await checkFn(...args);
           summary.results.push(...checkResults);
 
           for (const result of checkResults) {
@@ -438,8 +434,6 @@ export async function validateMetrics(opts = {}) {
   } catch (error) {
     console.error("Error in validateMetrics:", error);
     throw error;
-  } finally {
-    await mongoose.disconnect();
   }
 
   return summary;
@@ -467,6 +461,8 @@ if (
     } catch (err) {
       console.error("validateMetrics failed:", err);
       process.exit(2);
+    } finally {
+      await mongoose.disconnect();
     }
   })();
 }
