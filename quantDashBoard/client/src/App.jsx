@@ -41,7 +41,8 @@ function App() {
 
   // Setup authentication interceptors on app start
   useEffect(() => {
-    setupAuthInterceptors();
+    const cleanup = setupAuthInterceptors();
+    return cleanup;
   }, []);
 
   // Check if user is already logged in on app start

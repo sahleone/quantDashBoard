@@ -64,11 +64,24 @@ const refreshToken = async () => {
   }
 };
 
+// Track interceptor IDs so we can eject them on cleanup
+let requestInterceptorId = null;
+let responseInterceptorId = null;
+
 export const setupAuthInterceptors = () => {
+  // Eject any previously registered interceptors to avoid duplicates
+  // (e.g. React 18 Strict Mode double-invocation of useEffect)
+  if (requestInterceptorId !== null) {
+    axios.interceptors.request.eject(requestInterceptorId);
+  }
+  if (responseInterceptorId !== null) {
+    axios.interceptors.response.eject(responseInterceptorId);
+  }
+
   console.log("Setting up auth interceptors...");
 
   // Request interceptor - add auth header to requests that don't already have one
-  axios.interceptors.request.use(
+  requestInterceptorId = axios.interceptors.request.use(
     (config) => {
       // List of public endpoints that don't require authentication
       const publicEndpoints = [
@@ -104,7 +117,7 @@ export const setupAuthInterceptors = () => {
   );
 
   // Response interceptor - handle token refresh on 401 errors
-  axios.interceptors.response.use(
+  responseInterceptorId = axios.interceptors.response.use(
     (response) => {
       return response;
     },
@@ -155,6 +168,18 @@ export const setupAuthInterceptors = () => {
       return Promise.reject(error);
     }
   );
+
+  // Return a cleanup function for useEffect teardown
+  return () => {
+    if (requestInterceptorId !== null) {
+      axios.interceptors.request.eject(requestInterceptorId);
+      requestInterceptorId = null;
+    }
+    if (responseInterceptorId !== null) {
+      axios.interceptors.response.eject(responseInterceptorId);
+      responseInterceptorId = null;
+    }
+  };
 };
 
 /**
