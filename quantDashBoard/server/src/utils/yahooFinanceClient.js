@@ -38,7 +38,7 @@ let lastRequestTime = 0;
  * Common cryptocurrency symbols that need "-USD" suffix for Yahoo Finance
  * This is not exhaustive but covers the most common ones
  */
-const CRYPTO_SYMBOLS = new Set([
+export const CRYPTO_SYMBOLS = new Set([
   "BTC",
   "ETH",
   "LTC",
@@ -108,6 +108,16 @@ const CRYPTO_SYMBOLS = new Set([
   "BAND",
   "NMR",
 ]);
+
+/**
+ * Check if a symbol is a crypto symbol that needs "-USD" suffix
+ * @param {string} symbol - Symbol to check
+ * @returns {boolean}
+ */
+export function isCryptoSymbol(symbol) {
+  const cleanSymbol = symbol.replace(/\s+/g, "").toUpperCase();
+  return CRYPTO_SYMBOLS.has(cleanSymbol) && !cleanSymbol.endsWith("-USD");
+}
 
 /**
  * Normalize symbol for Yahoo Finance API

@@ -57,7 +57,6 @@ class SnapTradeController {
       res.status(201).json({
         message: "SnapTrade user created successfully",
         userId: snapTradeUser.userId,
-        userSecret: snapTradeUser.userSecret,
       });
     } catch (error) {
       console.error("Error creating SnapTrade user:", error);
@@ -70,7 +69,9 @@ class SnapTradeController {
    */
   async generateConnectionPortal(req, res) {
     try {
-      const { userId, userSecret, broker } = req.body;
+      const userId = req.user?.userId || req.body?.userId;
+      const userSecret = req.user?.userSecret || req.body?.userSecret;
+      const { broker } = req.body;
 
       if (!userId || !userSecret) {
         return res.status(400).json({ error: "Missing userId or userSecret" });
@@ -97,7 +98,9 @@ class SnapTradeController {
   async updateConnection(req, res) {
     try {
       const { authorizationId } = req.params;
-      const { userId, userSecret, updates } = req.body;
+      const userId = req.user?.userId || req.body?.userId;
+      const userSecret = req.user?.userSecret || req.body?.userSecret;
+      const { updates } = req.body;
 
       if (!authorizationId) {
         return res
@@ -154,7 +157,8 @@ class SnapTradeController {
    */
   async syncUserConnections(req, res) {
     try {
-      const { userId, userSecret } = req.query;
+      const userId = req.user?.userId || req.query?.userId;
+      const userSecret = req.user?.userSecret || req.query?.userSecret;
 
       if (!userId || !userSecret) {
         return res.status(400).json({ error: "Missing userId or userSecret" });
@@ -235,7 +239,8 @@ class SnapTradeController {
    */
   async syncUserAccounts(req, res) {
     try {
-      const { userId, userSecret } = req.query;
+      const userId = req.user?.userId || req.query?.userId;
+      const userSecret = req.user?.userSecret || req.query?.userSecret;
 
       if (!userId || !userSecret) {
         return res.status(400).json({ error: "Missing userId or userSecret" });
@@ -352,7 +357,9 @@ class SnapTradeController {
    */
   async syncAccountPositions(req, res) {
     try {
-      const { userId, userSecret, accountId } = req.query;
+      const userId = req.user?.userId || req.query?.userId;
+      const userSecret = req.user?.userSecret || req.query?.userSecret;
+      const accountId = req.query?.accountId;
 
       if (!userId || !userSecret || !accountId) {
         if (res && res.status && res.json) {
@@ -718,10 +725,9 @@ class SnapTradeController {
    */
   async syncAccountOptionHoldings(req, res) {
     try {
-      const { userId, userSecret, accountId } = {
-        ...(req.query || {}),
-        ...(req.body || {}),
-      };
+      const userId = req.user?.userId || req.query?.userId || req.body?.userId;
+      const userSecret = req.user?.userSecret || req.query?.userSecret || req.body?.userSecret;
+      const accountId = req.query?.accountId || req.body?.accountId;
 
       if (!userId || !userSecret || !accountId) {
         if (res && res.status && res.json) {
@@ -857,7 +863,12 @@ class SnapTradeController {
       }
 
       // Require SnapTrade credentials and accountId (SDK requires accountId)
-      const { userId, userSecret, accountId } = params;
+      const userId = req.user?.userId || params.userId;
+      const userSecret = req.user?.userSecret || params.userSecret;
+      const accountId = params.accountId;
+      // Remove credentials from params to avoid passing them to the SDK
+      delete params.userId;
+      delete params.userSecret;
       if (!userId || !userSecret || !accountId) {
         return res.status(400).json({
           error:
@@ -957,10 +968,8 @@ class SnapTradeController {
       const { accountId } = req.query || {};
       const user = req.user;
 
-      // Use authenticated user if available, otherwise try query/body params (backwards compatibility)
-      const userId = user?.userId || req.query?.userId || req.body?.userId;
-      const userSecret =
-        user?.userSecret || req.query?.userSecret || req.body?.userSecret;
+      const userId = user?.userId;
+      const userSecret = user?.userSecret;
 
       if (!userId || !userSecret || !accountId) {
         return res.status(400).json({ error: "Missing required parameters" });
@@ -1072,7 +1081,9 @@ class SnapTradeController {
    */
   async syncAccountBalances(req, res) {
     try {
-      const { userId, userSecret, accountId } = req.query;
+      const userId = req.user?.userId || req.query?.userId;
+      const userSecret = req.user?.userSecret || req.query?.userSecret;
+      const accountId = req.query?.accountId;
 
       if (!userId || !userSecret || !accountId) {
         if (res && res.status && res.json) {
@@ -1425,22 +1436,22 @@ class SnapTradeController {
         return res.status(400).json({ error: "Missing userId" });
       }
 
+      // Verify the requested userId matches the authenticated user
+      if (req.user?.userId !== userId) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+
+      // Collect account IDs BEFORE deleting accounts so dependent data can be cleaned up
+      const accountIds = await Account.find({ userId }).distinct("accountId");
+
       // Delete from SnapTrade
       await this.userService.deleteUser(userId);
 
       // Clean up MongoDB data
       await Connection.deleteMany({ userId });
+      await AccountPositions.deleteMany({ accountId: { $in: accountIds } });
+      await AccountBalances.deleteMany({ accountId: { $in: accountIds } });
       await Account.deleteMany({ userId });
-      await AccountPositions.deleteMany({
-        accountId: {
-          $in: await Account.find({ userId }).distinct("accountId"),
-        },
-      });
-      await AccountBalances.deleteMany({
-        accountId: {
-          $in: await Account.find({ userId }).distinct("accountId"),
-        },
-      });
 
       // Clear userSecret from user record
       await User.findOneAndUpdate(

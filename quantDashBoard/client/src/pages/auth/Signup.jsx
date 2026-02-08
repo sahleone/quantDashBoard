@@ -5,7 +5,7 @@ import axios from "axios";
 
 function Signup() {
   const navigate = useNavigate();
-  const { setUserId, setUserSecret, setUser } = useContext(UserContext);
+  const { setUserId, setUser } = useContext(UserContext);
   const firstNameRef = useRef(null);
   const lastNameRef = useRef(null);
   const emailRef = useRef(null);
@@ -46,9 +46,7 @@ function Signup() {
       if (response.data.user) {
         const u = response.data.user;
         if (setUserId) setUserId(u.userId || u.id || null);
-        if (setUserSecret) setUserSecret(u.userSecret || u.secret || null);
         if (setUser) setUser(u);
-        console.log("User signed up:", u);
       }
 
       navigate("/dashboard");

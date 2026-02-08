@@ -22,84 +22,9 @@ import PortfolioTimeseries from "../../models/PortfolioTimeseries.js";
 import EquitiesWeightTimeseries from "../../models/EquitiesWeightTimeseries.js";
 import PriceHistory from "../../models/PriceHistory.js";
 import AccountActivities from "../../models/AccountActivities.js";
+import { isCryptoSymbol } from "../../utils/yahooFinanceClient.js";
 
-/**
- * Check if a symbol is a crypto symbol that needs "-USD" suffix
- */
-function isCryptoSymbol(symbol) {
-  const cleanSymbol = symbol.replace(/\s+/g, "").toUpperCase();
-  const CRYPTO_SYMBOLS = new Set([
-    "BTC",
-    "ETH",
-    "LTC",
-    "XRP",
-    "BCH",
-    "EOS",
-    "XLM",
-    "XTZ",
-    "ADA",
-    "DOT",
-    "LINK",
-    "UNI",
-    "AAVE",
-    "SOL",
-    "MATIC",
-    "AVAX",
-    "ATOM",
-    "ALGO",
-    "FIL",
-    "DOGE",
-    "SHIB",
-    "USDC",
-    "USDT",
-    "DAI",
-    "BAT",
-    "ZEC",
-    "XMR",
-    "DASH",
-    "ETC",
-    "TRX",
-    "VET",
-    "THETA",
-    "ICP",
-    "FTM",
-    "NEAR",
-    "APT",
-    "ARB",
-    "OP",
-    "SUI",
-    "SEI",
-    "TIA",
-    "INJ",
-    "MKR",
-    "COMP",
-    "SNX",
-    "CRV",
-    "YFI",
-    "SUSHI",
-    "1INCH",
-    "ENJ",
-    "MANA",
-    "SAND",
-    "AXS",
-    "GALA",
-    "CHZ",
-    "FLOW",
-    "GRT",
-    "ANKR",
-    "SKL",
-    "NU",
-    "CGLD",
-    "OXT",
-    "UMA",
-    "FORTH",
-    "ETH2",
-    "CBETH",
-    "BAND",
-    "NMR",
-  ]);
-  return CRYPTO_SYMBOLS.has(cleanSymbol) && !cleanSymbol.endsWith("-USD");
-}
+// isCryptoSymbol imported from yahooFinanceClient (single source of truth)
 
 /**
  * Normalize crypto symbol for price lookup (e.g., ETH -> ETH-USD)
@@ -119,7 +44,14 @@ function normalizeCryptoSymbol(symbol) {
  * @returns {Map} - Map of date -> {symbol: units}
  */
 function buildUnitsFromActivities(activities, allDates) {
-  const UNITS_ACTIVITY_TYPES = new Set(["BUY", "SELL", "REI"]);
+  const UNITS_ACTIVITY_TYPES = new Set([
+    "BUY",
+    "SELL",
+    "REI",
+    "OPTIONASSIGNMENT",
+    "OPTIONEXERCISE",
+    "OPTIONEXPIRATION",
+  ]);
 
   // Group activities by date
   const activitiesByDate = new Map();
@@ -192,7 +124,7 @@ async function calculateStockValueFromUnits(units, date, db) {
     return { stockValue: 0, positions: [] };
   }
 
-  const symbols = Object.keys(units).filter((s) => units[s] > 0);
+  const symbols = Object.keys(units).filter((s) => units[s] !== 0);
 
   if (symbols.length === 0) {
     return { stockValue: 0, positions: [] };
@@ -244,7 +176,7 @@ async function calculateStockValueFromUnits(units, date, db) {
 
   for (const symbol of symbols) {
     const symbolUnits = units[symbol] || 0;
-    if (symbolUnits <= 0) continue;
+    if (symbolUnits === 0) continue;
 
     // Try original symbol first, then normalized crypto version
     let price = pricesBySymbol.get(symbol) || 0;
@@ -514,19 +446,21 @@ function calculateReturns(portfolioData) {
       curr.simpleReturns = (V_curr - base) / base;
     }
 
-    const endValueBeforeCF = V_curr - CF;
+    // TWR: assume cash flow occurs at start of period.
+    // Adjust the denominator only: V_prev + CF.
+    // Do NOT also subtract CF from the numerator — that double-counts.
     const startValueWithCF = V_prev + CF;
 
     if (Math.abs(startValueWithCF) < 1e-6) {
       curr.dailyTWRReturn = 0;
-    } else if (endValueBeforeCF <= 0) {
+    } else if (V_curr <= 0) {
       // Can't take log of zero or negative - this usually indicates missing prices
       // or data quality issues. Set to 0 (no return) rather than -10 to avoid
       // extreme negative sums that cause -100% returns
       curr.dailyTWRReturn = 0;
     } else {
-      // Calculate log return: ln(V_end / V_start)
-      const ratio = endValueBeforeCF / startValueWithCF;
+      // Calculate log return: ln(V_curr / (V_prev + CF))
+      const ratio = V_curr / startValueWithCF;
       // Clamp ratio to prevent log(0) or extreme values
       const clampedRatio = Math.max(ratio, 1e-10);
       const logReturn = Math.log(clampedRatio);
@@ -842,7 +776,6 @@ export async function updatePortfolioTimeseries(opts = {}) {
 
     if (accounts.length === 0) {
       console.log("No accounts found in activities");
-      await mongoose.disconnect();
       return summary;
     }
 
@@ -925,8 +858,9 @@ export async function updatePortfolioTimeseries(opts = {}) {
             .toArray();
 
           if (lastEntry.length > 0) {
+            // Include the last existing day so its totalValue seeds V_prev
+            // for the first new day's return calculation (avoids V_prev = 0)
             startDate = new Date(lastEntry[0].date);
-            startDate.setDate(startDate.getDate() + 1);
             // Ensure startDate is not before earliest activity
             if (startDate < earliestActivityDate) {
               startDate = earliestActivityDate;
@@ -970,14 +904,22 @@ export async function updatePortfolioTimeseries(opts = {}) {
         // Build forward-filled cash value map for all dates (like Python's ffill)
         const cashValueByDate = new Map();
         let lastCashValue = 0;
-        const allCashDates = Array.from(cashFlows.cashValue.keys()).sort();
 
-        // Forward-fill cash values (like Python's ffill)
+        // Build forward-filled extFlowCum map for all dates (like Python's ffill)
+        const extFlowCumByDate = new Map();
+        let lastExtFlowCum = 0;
+
+        // Forward-fill cash values and extFlowCum in a single pass
         for (const dateKey of allDatesSorted) {
           if (cashFlows.cashValue.has(dateKey)) {
             lastCashValue = cashFlows.cashValue.get(dateKey);
           }
           cashValueByDate.set(dateKey, lastCashValue);
+
+          if (cashFlows.extFlowCum.has(dateKey)) {
+            lastExtFlowCum = cashFlows.extFlowCum.get(dateKey);
+          }
+          extFlowCumByDate.set(dateKey, lastExtFlowCum);
         }
 
         for (const date of dates) {
@@ -1024,16 +966,8 @@ export async function updatePortfolioTimeseries(opts = {}) {
 
           const depositWithdrawal = cashFlows.extFlowDay.get(dateKey) || 0;
 
-          // Forward-fill external flow cumulative (like Python's ffill)
-          let externalFlowCumulative = 0;
-          const extFlowCumDates = Array.from(
-            cashFlows.extFlowCum.keys()
-          ).sort();
-          for (const cfDate of extFlowCumDates) {
-            if (cfDate <= dateKey) {
-              externalFlowCumulative = cashFlows.extFlowCum.get(cfDate) || 0;
-            }
-          }
+          // Use pre-computed forward-filled extFlowCum
+          const externalFlowCumulative = extFlowCumByDate.get(dateKey) || 0;
 
           portfolioData.set(dateKey, {
             userId: acctUserId,
@@ -1081,6 +1015,8 @@ export async function updatePortfolioTimeseries(opts = {}) {
                   cumReturn: data.cumReturn,
                   equityIndex: data.equityIndex,
                   positions: data.positions,
+                },
+                $setOnInsert: {
                   createdAt: new Date(),
                 },
               },
@@ -1129,8 +1065,6 @@ export async function updatePortfolioTimeseries(opts = {}) {
   } catch (error) {
     console.error("Error in updatePortfolioTimeseries:", error);
     throw error;
-  } finally {
-    await mongoose.disconnect();
   }
 
   return summary;
@@ -1163,6 +1097,8 @@ if (
     } catch (err) {
       console.error("updatePortfolioTimeseries failed:", err);
       process.exit(2);
+    } finally {
+      await mongoose.disconnect();
     }
   })();
 }

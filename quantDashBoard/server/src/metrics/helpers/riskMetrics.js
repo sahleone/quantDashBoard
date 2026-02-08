@@ -211,19 +211,21 @@ export function calculateCVaR(returns, var95) {
     return 0;
   }
 
-  const losses = returns
-    .filter((r) => r !== null && r !== undefined)
-    .map((r) => -r);
+  const validReturns = returns.filter(
+    (r) => r !== null && r !== undefined
+  );
 
-  if (losses.length === 0) {
+  if (validReturns.length === 0) {
     return 0;
   }
 
-  const tailLosses = losses.filter((loss) => loss >= var95);
+  // Sort returns ascending and take the worst 5% (left tail)
+  const sorted = [...validReturns].sort((a, b) => a - b);
+  const cutoff = Math.max(1, Math.floor(sorted.length * 0.05));
+  const tailReturns = sorted.slice(0, cutoff);
 
-  if (tailLosses.length === 0) {
-    return var95;
-  }
-
-  return tailLosses.reduce((sum, loss) => sum + loss, 0) / tailLosses.length;
+  // CVaR = negative of the mean of the worst tail returns (expressed as a loss)
+  const tailMean =
+    tailReturns.reduce((sum, r) => sum + r, 0) / tailReturns.length;
+  return -tailMean;
 }

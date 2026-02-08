@@ -37,7 +37,7 @@ export default async function syncAllUserData(userId, userSecret = null, options
   // Resolve userSecret if not provided
   let effectiveSecret = userSecret;
   if (!effectiveSecret) {
-    const user = await User.findOne({ userId }).lean();
+    const user = await User.findOne({ userId });
     if (!user || !user.userSecret) {
       throw new Error(`Missing userSecret for user ${userId}`);
     }

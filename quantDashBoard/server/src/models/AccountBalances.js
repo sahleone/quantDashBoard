@@ -44,10 +44,12 @@ const accountBalancesSchema = new mongoose.Schema(
     },
   },
   {
-    // Composite key for asOfDate and accountId
     timestamps: false,
   }
 );
+
+// Enforce uniqueness at the database level to prevent race-condition duplicates
+accountBalancesSchema.index({ accountId: 1, asOfDate: 1 }, { unique: true });
 
 const AccountBalances = mongoose.model(
   "SnapTradeAccountBalances",

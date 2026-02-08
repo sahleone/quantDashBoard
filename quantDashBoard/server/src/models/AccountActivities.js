@@ -47,6 +47,9 @@ const activitiesSchema = new mongoose.Schema(
   { timestamps: false }
 );
 
+// Enforce uniqueness at the database level to prevent race-condition duplicates
+activitiesSchema.index({ accountId: 1, activityId: 1 }, { unique: true });
+
 const Activities = mongoose.model(
   "SnapTradeAccountActivities",
   activitiesSchema
