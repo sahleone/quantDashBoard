@@ -300,7 +300,11 @@ class AccountsController {
       // Build query
       const query = { userId };
       if (accountId) query.accountId = accountId;
-      if (symbol) query.symbol = { $regex: symbol, $options: "i" };
+      if (symbol) {
+        // Escape regex special characters to prevent ReDoS / injection
+        const escaped = symbol.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        query.symbol = { $regex: escaped, $options: "i" };
+      }
       if (assetType) query.assetType = assetType;
       if (asOf) {
         const asOfDate = new Date(asOf);
