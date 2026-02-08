@@ -27,6 +27,7 @@ const requiredEnvVars = [
   "SNAPTRADE_CLIENT_ID",
   "SNAPTRADE_CONSUMER_KEY",
   "JWT_SECRET",
+  "JWT_REFRESH_SECRET",
 ];
 
 requiredEnvVars.forEach((varName) => {
@@ -48,8 +49,7 @@ export const config = {
   jwt: {
     // Trim values to avoid accidental leading/trailing spaces from .env
     secret: process.env.JWT_SECRET?.trim(),
-    refreshSecret:
-      process.env.JWT_REFRESH_SECRET?.trim() || process.env.JWT_SECRET?.trim(),
+    refreshSecret: process.env.JWT_REFRESH_SECRET?.trim(),
     expiresIn: process.env.EXPIRES_IN || process.env.JWT_EXPIRES_IN || "15m",
   },
   DATABASE_URL:

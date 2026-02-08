@@ -40,16 +40,14 @@ export default async function updateAccountHoldingsForUser(
   let user = null;
 
   if (!effectiveSecret) {
-    user = await User.findOne({ userId }).lean();
+    user = await User.findOne({ userId });
     if (!user || !user.userSecret) {
       throw new Error("Missing userSecret for user");
     }
     effectiveSecret = user.userSecret;
   } else {
     // try to load user for metadata but don't require it
-    user = await User.findOne({ userId })
-      .lean()
-      .catch(() => null);
+    user = await User.findOne({ userId }).catch(() => null);
   }
 
   const connectionDocs = await ConnectionModel.find({ userId }).lean();

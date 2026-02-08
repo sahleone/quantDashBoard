@@ -5,7 +5,7 @@ import axios from "axios";
 import UserContext from "../../context/UserContext";
 
 function Login() {
-  const { setUserId, setUserSecret, setUser } = useContext(UserContext);
+  const { setUserId, setUser } = useContext(UserContext);
   const navigate = useNavigate();
   const emailRef = useRef(null);
   const passwordRef = useRef(null);
@@ -40,10 +40,7 @@ function Login() {
       if (response.data.user) {
         const u = response.data.user;
         if (setUserId) setUserId(u.userId || u.id || null);
-        if (setUserSecret) setUserSecret(u.userSecret || u.secret || null);
-        // Also call compatibility setUser if available
         if (setUser) setUser(u);
-        console.log("User logged in:", u);
       }
 
       // Navigate to dashboard

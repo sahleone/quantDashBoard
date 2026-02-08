@@ -89,15 +89,13 @@ class AuthController {
     console.error(err.message, err.code);
     let errors = { email: "", password: "", firstName: "", lastName: "" };
 
-    // incorrect password
-    if (err.message.includes("Incorrect password")) {
-      errors.password = "Incorrect password";
-      return errors;
-    }
-
-    // incorrect email
-    if (err.message.includes("Incorrect email")) {
-      errors.email = "Incorrect email";
+    // Return a generic message for both incorrect email and password
+    // to prevent user enumeration attacks
+    if (
+      err.message.includes("Incorrect password") ||
+      err.message.includes("Incorrect email")
+    ) {
+      errors.email = "Invalid email or password";
       return errors;
     }
 
@@ -266,10 +264,8 @@ class AuthController {
           lastName: user.lastName,
           email: user.email,
           preferences: user.preferences,
-          userSecret: user.userSecret, // Include userSecret for SnapTrade operations
         },
         accessToken: accessToken,
-        refreshToken: refreshToken,
       });
     } catch (error) {
       console.error("Signup error:", error);
@@ -361,10 +357,8 @@ class AuthController {
           lastName: user.lastName,
           email: user.email,
           preferences: user.preferences,
-          userSecret: user.userSecret, // Include userSecret for SnapTrade operations
         },
         accessToken: accessToken,
-        refreshToken: refreshToken,
       });
     } catch (error) {
       console.error("Login error:", error);
@@ -482,10 +476,11 @@ class AuthController {
    */
   logout(req, res) {
     res.cookie("refreshToken", "", this.cookieOptions(0));
+    res.cookie("jwt", "", this.cookieOptions(0));
+    res.locals.user = null;
     res.status(200).json({
       message: "Logged out successfully",
     });
-    res.locals.user = null;
   }
 
   /**
@@ -573,16 +568,16 @@ class AuthController {
         });
       }
 
-      // Validate that at least one field is being updated
-      // Exclude sensitive/unwritable fields including nested `user` object if provided
-      const {
-        password,
-        _id,
-        userId,
-        userSecret,
-        user: bodyUser,
-        ...allowedUpdates
-      } = updateData;
+      // Use an allowlist of fields that clients may update.
+      // Any new sensitive field added to the User model will NOT be writable
+      // unless explicitly added here.
+      const ALLOWED_FIELDS = ["firstName", "lastName", "email", "preferences"];
+      const allowedUpdates = {};
+      for (const field of ALLOWED_FIELDS) {
+        if (field in updateData) {
+          allowedUpdates[field] = updateData[field];
+        }
+      }
       if (Object.keys(allowedUpdates).length === 0) {
         return res.status(400).json({
           error: {

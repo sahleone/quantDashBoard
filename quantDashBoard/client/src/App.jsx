@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   createBrowserRouter,
   createRoutesFromElements,
@@ -29,24 +29,6 @@ import ProtectedRoutes from "./utils/ProtectedRoutes.jsx";
 
 // layouts
 import RootLayout from "./Layouts/RootLayout";
-
-const router = createBrowserRouter(
-  createRoutesFromElements(
-    <Route path="/" element={<RootLayout />}>
-      <Route index element={<Home />} />
-      <Route element={<ProtectedRoutes />}>
-        <Route path="portfolio" element={<Portfolio />} />
-        <Route path="dashboard" element={<Dashboard />} />
-        <Route path="asset-allocation" element={<AssetAllocation />} />
-        <Route path="dividends" element={<Dividends />} />
-        <Route path="settings" element={<Settings />} />
-        <Route path="stock-info" element={<StockInfo />} />
-        <Route path="logout" element={<Logout />} />
-      </Route>
-      <Route path="*" element={<NotFound />} />
-    </Route>
-  )
-);
 
 function App() {
   // Ensure axios sends cookies on cross-site requests by default. This
@@ -79,14 +61,8 @@ function App() {
           const normalized = {
             ...dataUser,
             userId: dataUser.userId ?? dataUser.id ?? dataUser.userid ?? null,
-            userSecret:
-              dataUser.userSecret ??
-              dataUser.secret ??
-              dataUser.secretKey ??
-              null,
           };
           setUser(normalized);
-          console.log("User is authenticated:", normalized);
         } else {
           console.log("No user info returned from /api/user/me");
         }
@@ -101,15 +77,36 @@ function App() {
     checkAuth();
   }, []);
 
+  // Create the router INSIDE the component so ProtectedRoutes (and all
+  // route-level components) can access UserContext via useContext.
+  // useMemo keeps the reference stable across re-renders.
+  const router = useMemo(
+    () =>
+      createBrowserRouter(
+        createRoutesFromElements(
+          <Route path="/" element={<RootLayout />}>
+            <Route index element={<Home />} />
+            <Route element={<ProtectedRoutes />}>
+              <Route path="portfolio" element={<Portfolio />} />
+              <Route path="dashboard" element={<Dashboard />} />
+              <Route path="asset-allocation" element={<AssetAllocation />} />
+              <Route path="dividends" element={<Dividends />} />
+              <Route path="settings" element={<Settings />} />
+              <Route path="stock-info" element={<StockInfo />} />
+              <Route path="logout" element={<Logout />} />
+            </Route>
+            <Route path="*" element={<NotFound />} />
+          </Route>
+        )
+      ),
+    []
+  );
+
   if (isLoading) return <div>Loading...</div>;
 
   // Helper setters to partially update the user object
   const setUserId = (id) => {
     setUser((prev) => ({ ...(prev || {}), userId: id }));
-  };
-
-  const setUserSecret = (secret) => {
-    setUser((prev) => ({ ...(prev || {}), userSecret: secret }));
   };
 
   return (
@@ -118,9 +115,7 @@ function App() {
         user,
         setUser,
         userId: user?.userId ?? null,
-        userSecret: user?.userSecret ?? null,
         setUserId,
-        setUserSecret,
       }}
     >
       <div className="app">

@@ -1,6 +1,48 @@
 import mongoose from "mongoose";
 import validator from "validator";
 import bcrypt from "bcrypt";
+import crypto from "crypto";
+
+// Encryption helpers for userSecret at rest
+const ENCRYPTION_KEY = process.env.USER_SECRET_ENCRYPTION_KEY; // 32-byte hex key
+const ALGORITHM = "aes-256-gcm";
+
+function encrypt(text) {
+  if (!text) return text;
+  if (!ENCRYPTION_KEY) {
+    console.warn("USER_SECRET_ENCRYPTION_KEY not set — userSecret stored as plaintext");
+    return text;
+  }
+  const key = Buffer.from(ENCRYPTION_KEY, "hex");
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv(ALGORITHM, key, iv);
+  let encrypted = cipher.update(text, "utf8", "hex");
+  encrypted += cipher.final("hex");
+  const authTag = cipher.getAuthTag().toString("hex");
+  // Store as iv:authTag:ciphertext
+  return `${iv.toString("hex")}:${authTag}:${encrypted}`;
+}
+
+function decrypt(text) {
+  if (!text) return text;
+  if (!ENCRYPTION_KEY) return text;
+  // If text doesn't look encrypted (no colons), return as-is (legacy plaintext)
+  if (!text.includes(":")) return text;
+  try {
+    const key = Buffer.from(ENCRYPTION_KEY, "hex");
+    const [ivHex, authTagHex, ciphertext] = text.split(":");
+    const iv = Buffer.from(ivHex, "hex");
+    const authTag = Buffer.from(authTagHex, "hex");
+    const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
+    decipher.setAuthTag(authTag);
+    let decrypted = decipher.update(ciphertext, "hex", "utf8");
+    decrypted += decipher.final("utf8");
+    return decrypted;
+  } catch {
+    // If decryption fails, return raw value (legacy plaintext)
+    return text;
+  }
+}
 
 const userSchema = new mongoose.Schema({
   _id: {
@@ -38,6 +80,8 @@ const userSchema = new mongoose.Schema({
   },
   userSecret: {
     type: String,
+    set: encrypt,
+    get: decrypt,
   },
   preferences: {
     baseCurrency: {

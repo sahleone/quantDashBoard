@@ -58,7 +58,7 @@ class MetricsController {
    */
   async getPortfolioValue(req, res) {
     try {
-      const userId = req.user?.userId || req.body?.userId;
+      const userId = req.user?.userId;
 
       if (!userId) {
         return res.status(400).json({
@@ -270,7 +270,7 @@ class MetricsController {
    */
   async getPerformance(req, res) {
     try {
-      const userId = req.user?.userId || req.body?.userId;
+      const userId = req.user?.userId;
 
       if (!userId) {
         return res.status(400).json({
@@ -601,7 +601,7 @@ class MetricsController {
    */
   async getRiskMetrics(req, res) {
     try {
-      const userId = req.user?.userId || req.body?.userId;
+      const userId = req.user?.userId;
 
       if (!userId) {
         return res.status(400).json({
@@ -807,7 +807,7 @@ class MetricsController {
    */
   async getFactorExposures(req, res) {
     try {
-      const userId = req.user?.userId || req.body?.userId;
+      const userId = req.user?.userId;
 
       if (!userId) {
         return res.status(400).json({
@@ -881,7 +881,7 @@ class MetricsController {
    */
   async getKPIs(req, res) {
     try {
-      const userId = req.user?.userId || req.body?.userId;
+      const userId = req.user?.userId;
 
       if (!userId) {
         return res.status(400).json({
@@ -950,7 +950,7 @@ class MetricsController {
    */
   async getTimeSeries(req, res) {
     try {
-      const userId = req.user?.userId || req.body?.userId;
+      const userId = req.user?.userId;
 
       if (!userId) {
         return res.status(400).json({
@@ -1592,7 +1592,8 @@ class MetricsController {
    */
   async calculateMetrics(req, res) {
     try {
-      const { userId, accountId, fullSync = false, steps } = req.body;
+      const userId = req.user?.userId;
+      const { accountId, fullSync = false, steps } = req.body;
 
       // Validate required parameters
       if (!userId) {

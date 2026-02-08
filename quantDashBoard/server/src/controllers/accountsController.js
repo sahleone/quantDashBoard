@@ -273,14 +273,13 @@ class AccountsController {
    */
   async getHoldings(req, res) {
     try {
-      const { userId } = req.body;
+      const userId = req.user?.userId;
 
-      // Validate required parameters
       if (!userId) {
-        return res.status(400).json({
+        return res.status(401).json({
           error: {
-            code: "VALIDATION_ERROR",
-            message: "Missing required parameter: userId is required",
+            code: "UNAUTHORIZED",
+            message: "Not authenticated",
           },
         });
       }
@@ -480,9 +479,7 @@ class AccountsController {
    */
   async getPositions(req, res) {
     try {
-      // Prefer explicit userId from the body (backwards compatibility),
-      // but fall back to the authenticated user attached by requireAuth.
-      const userId = req.body?.userId || req.user?.userId || null;
+      const userId = req.user?.userId || null;
       const { accountId, asOf } = req.query;
 
       console.log(
@@ -706,28 +703,19 @@ class AccountsController {
     } catch (error) {
       console.error("Error getting account activities:", error);
       const sdkStatus = error.response?.status;
-      const details = {
-        message: error.message,
-        sdkStatus,
+      // Log full upstream details server-side only; never expose to client
+      console.error("Upstream request details:", {
+        url: error.response?.config?.url,
+        method: error.response?.config?.method,
+        params: error.response?.config?.params || error.response?.config?.data || null,
         sdkData: error.response?.data,
-        // Include the upstream request details if available to aid debugging
-        sdkRequest: {
-          url: error.response?.config?.url,
-          method: error.response?.config?.method,
-          params:
-            error.response?.config?.params ||
-            error.response?.config?.data ||
-            null,
-          headers: error.response?.config?.headers || null,
-        },
-      };
+      });
       const statusToReturn =
         sdkStatus && Number.isInteger(sdkStatus) ? sdkStatus : 500;
       return res.status(statusToReturn).json({
         error: {
           code: "ACTIVITIES_RETRIEVAL_FAILED",
           message: "Failed to retrieve account activities",
-          details,
         },
       });
     }
@@ -1023,8 +1011,14 @@ class AccountsController {
    */
   async getPositionDetails(req, res) {
     try {
-      const { userId } = req.body;
+      const userId = req.user?.userId;
       const { symbol } = req.params;
+
+      if (!userId) {
+        return res.status(401).json({
+          error: { code: "UNAUTHORIZED", message: "Not authenticated" },
+        });
+      }
 
       console.log(
         `Getting position details for symbol: ${symbol}, user: ${userId}`
