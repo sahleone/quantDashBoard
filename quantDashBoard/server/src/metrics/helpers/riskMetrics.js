@@ -22,7 +22,7 @@ export function calculateVolatility(returns, annualized = true) {
 
   const validReturns = returns.filter((r) => r !== null && r !== undefined);
 
-  if (validReturns.length === 0) {
+  if (validReturns.length < 2) {
     return 0;
   }
 
@@ -31,7 +31,7 @@ export function calculateVolatility(returns, annualized = true) {
 
   const variance =
     validReturns.reduce((sum, r) => sum + Math.pow(r - mean, 2), 0) /
-    validReturns.length;
+    (validReturns.length - 1);
 
   const stdDev = Math.sqrt(variance);
 
@@ -72,7 +72,7 @@ export function calculateBeta(portfolioReturns, benchmarkReturns) {
     }
   }
 
-  if (pairs.length === 0) {
+  if (pairs.length < 2) {
     return null;
   }
 
@@ -83,11 +83,11 @@ export function calculateBeta(portfolioReturns, benchmarkReturns) {
     pairs.reduce(
       (sum, p) => sum + (p.portfolio - pMean) * (p.benchmark - bMean),
       0
-    ) / pairs.length;
+    ) / (pairs.length - 1);
 
   const bVariance =
     pairs.reduce((sum, p) => sum + Math.pow(p.benchmark - bMean, 2), 0) /
-    pairs.length;
+    (pairs.length - 1);
 
   if (bVariance === 0) {
     return null;
@@ -152,8 +152,9 @@ export function calculateVaRHistorical(returns, confidence = 0.95) {
     return 0;
   }
 
-  const index = Math.ceil(losses.length * confidence) - 1;
-  return losses[Math.min(index, losses.length - 1)];
+  // For VaR at 95% confidence, we want the 5th percentile of losses (sorted ascending)
+  const index = Math.ceil(losses.length * (1 - confidence)) - 1;
+  return losses[Math.max(index, 0)];
 }
 
 /**
@@ -173,11 +174,15 @@ export function calculateVaRParametric(returns, confidence = 0.95) {
     return 0;
   }
 
+  if (validReturns.length < 2) {
+    return 0;
+  }
+
   const mean =
     validReturns.reduce((sum, r) => sum + r, 0) / validReturns.length;
   const variance =
     validReturns.reduce((sum, r) => sum + Math.pow(r - mean, 2), 0) /
-    validReturns.length;
+    (validReturns.length - 1);
   const std = Math.sqrt(variance);
 
   const zScores = {

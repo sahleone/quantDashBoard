@@ -458,21 +458,12 @@ function calculateReturns(portfolioData) {
       // or data quality issues. Set to 0 (no return) rather than -10 to avoid
       // extreme negative sums that cause -100% returns
       curr.dailyTWRReturn = 0;
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/033a683d-b3d0-4415-8284-d7ee35a9e662',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'updatePortfolioTimeseries.js:520',message:'calculateReturns: endValueBeforeCF <= 0, setting log return to 0',data:{date:currDate,V_prev:V_prev,V_curr:V_curr,CF:CF,V_curr:V_curr,startValueWithCF:startValueWithCF},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-      // #endregion
     } else {
       // Calculate log return: ln(V_curr / (V_prev + CF))
       const ratio = V_curr / startValueWithCF;
       // Clamp ratio to prevent log(0) or extreme values
       const clampedRatio = Math.max(ratio, 1e-10);
       const logReturn = Math.log(clampedRatio);
-
-      // #region agent log
-      if (!isFinite(logReturn) || Math.abs(logReturn) > 10) {
-        fetch('http://127.0.0.1:7243/ingest/033a683d-b3d0-4415-8284-d7ee35a9e662',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'updatePortfolioTimeseries.js:530',message:'calculateReturns: extreme log return detected',data:{date:currDate,V_prev:V_prev,V_curr:V_curr,CF:CF,V_curr:V_curr,startValueWithCF:startValueWithCF,ratio:ratio,clampedRatio:clampedRatio,logReturn:logReturn},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-      }
-      // #endregion
 
       if (
         isNaN(logReturn) ||
@@ -630,8 +621,6 @@ function calculatePeriodTWRReturns(portfolioData) {
       // Sum log returns (since dailyTWRReturn is now a log return)
       let sumLogReturns = 0;
       let hasValidReturns = false;
-      let extremeReturns = []; // Track very negative log returns
-
       for (const dateStr of periodDates) {
         const dayData = portfolioData.get(dateStr);
         if (
@@ -640,11 +629,6 @@ function calculatePeriodTWRReturns(portfolioData) {
           dayData.dailyTWRReturn !== null
         ) {
           const logReturn = dayData.dailyTWRReturn;
-          // #region agent log
-          if (logReturn <= -5 || !isFinite(logReturn)) {
-            extremeReturns.push({ date: dateStr, logReturn: logReturn });
-          }
-          // #endregion
           if (isFinite(logReturn)) {
             sumLogReturns += logReturn;
             hasValidReturns = true;
@@ -657,13 +641,7 @@ function calculatePeriodTWRReturns(portfolioData) {
       // Convert sum of log returns back to simple return: exp(sum) - 1
       const cumulative = Math.exp(sumLogReturns);
       const result = cumulative - 1;
-      
-      // #region agent log
-      if (result <= -0.99 || extremeReturns.length > 0 || !isFinite(result)) {
-        fetch('http://127.0.0.1:7243/ingest/033a683d-b3d0-4415-8284-d7ee35a9e662',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'updatePortfolioTimeseries.js:705',message:'geometricLink: result is -100% or extreme log returns found',data:{result:result,sumLogReturns:sumLogReturns,cumulative:cumulative,extremeReturns:extremeReturns,period:startDateStr+' to '+endDateStr},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-      }
-      // #endregion
-      
+
       return isFinite(result) ? result : null;
     };
 

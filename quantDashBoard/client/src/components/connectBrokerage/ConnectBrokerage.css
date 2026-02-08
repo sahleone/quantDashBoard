@@ -132,3 +132,41 @@
   margin-left: 8px;
   color: #333;
 }
+
+/* Full sync button */
+.full-sync-wrap {
+  margin-top: 0.5rem;
+}
+
+.full-sync-button {
+  padding: 0.4rem 0.75rem;
+  border-radius: 6px;
+  border: 1px solid #276749;
+  background: #38a169;
+  color: white;
+  cursor: pointer;
+  font-size: 0.875rem;
+}
+
+.full-sync-button[disabled] {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.full-sync-hint {
+  margin: 0.25rem 0 0;
+  font-size: 0.75rem;
+  color: #718096;
+}
+
+.full-sync-success {
+  color: #276749;
+  margin-top: 0.25rem;
+  font-size: 0.85rem;
+}
+
+.full-sync-error {
+  color: #9b2c2c;
+  margin-top: 0.25rem;
+  font-size: 0.85rem;
+}

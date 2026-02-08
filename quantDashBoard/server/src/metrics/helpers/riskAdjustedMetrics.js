@@ -25,7 +25,7 @@ export function calculateSharpeRatio(
 
   const validReturns = returns.filter((r) => r !== null && r !== undefined);
 
-  if (validReturns.length === 0) {
+  if (validReturns.length < 2) {
     return null;
   }
 
@@ -34,10 +34,10 @@ export function calculateSharpeRatio(
 
   const variance =
     validReturns.reduce((sum, r) => sum + Math.pow(r - meanReturn, 2), 0) /
-    validReturns.length;
+    (validReturns.length - 1);
   const volatility = Math.sqrt(variance);
 
-  if (volatility === 0) {
+  if (volatility === 0 || !isFinite(volatility)) {
     return null;
   }
 
@@ -65,7 +65,7 @@ export function calculateSortinoRatio(returns, mar = 0, annualized = true) {
 
   const validReturns = returns.filter((r) => r !== null && r !== undefined);
 
-  if (validReturns.length === 0) {
+  if (validReturns.length < 2) {
     return null;
   }
 
@@ -86,7 +86,7 @@ export function calculateSortinoRatio(returns, mar = 0, annualized = true) {
     return null;
   }
 
-  const downsideVariance = sumSquaredDownsideDeviations / validReturns.length;
+  const downsideVariance = sumSquaredDownsideDeviations / (validReturns.length - 1);
   const downsideDeviation = Math.sqrt(downsideVariance);
 
   if (downsideDeviation === 0) {
