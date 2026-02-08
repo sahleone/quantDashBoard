@@ -36,7 +36,7 @@ export function calculateCorrelation(portfolioReturns, benchmarkReturns) {
     }
   }
 
-  if (pairs.length === 0) {
+  if (pairs.length < 2) {
     return null;
   }
 
@@ -47,16 +47,16 @@ export function calculateCorrelation(portfolioReturns, benchmarkReturns) {
     pairs.reduce(
       (sum, p) => sum + (p.portfolio - pMean) * (p.benchmark - bMean),
       0
-    ) / pairs.length;
+    ) / (pairs.length - 1);
 
   const pVariance =
     pairs.reduce((sum, p) => sum + Math.pow(p.portfolio - pMean, 2), 0) /
-    pairs.length;
+    (pairs.length - 1);
   const pStd = Math.sqrt(pVariance);
 
   const bVariance =
     pairs.reduce((sum, p) => sum + Math.pow(p.benchmark - bMean, 2), 0) /
-    pairs.length;
+    (pairs.length - 1);
   const bStd = Math.sqrt(bVariance);
 
   if (pStd === 0 || bStd === 0) {

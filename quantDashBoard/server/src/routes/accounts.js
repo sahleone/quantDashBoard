@@ -239,4 +239,66 @@ router.post("/sync/all", async (req, res) => {
   }
 });
 
+/**
+ * Full Sync: Source Data + Metrics Pipeline
+ * POST /api/accounts/sync/full
+ * Body: { fullSync?: boolean }
+ * Runs the complete update pipeline (SnapTrade sync + price data + timeseries + metrics + validation).
+ * Used by both the UI "Update All Data" button and the cron job.
+ */
+router.post("/sync/full", async (req, res) => {
+  const userId = req.body.userId || req.user?.userId;
+  const fullSync = !!req.body.fullSync;
+
+  if (!userId) return res.status(400).json({ error: "Missing userId" });
+
+  try {
+    const { default: fullSyncForUser } = await import(
+      "../utils/fullSyncForUser.js"
+    );
+
+    const result = await fullSyncForUser(userId, null, { fullSync });
+
+    // Summarise sync counts
+    const syncData = result.sync || {};
+    const accountsCount = syncData.accounts?.length || 0;
+
+    let holdingsCount = 0;
+    if (Array.isArray(syncData.holdings)) {
+      holdingsCount = syncData.holdings.reduce((sum, r) => {
+        if (r.status === "success" && r.holdings) {
+          return sum + (r.holdings.total || 0);
+        }
+        return sum;
+      }, 0);
+    }
+
+    // Summarise metrics pipeline
+    const metricsData = result.metrics || {};
+    const metricsErrors = metricsData.errors || [];
+
+    return res.status(200).json({
+      message: "Full sync completed",
+      success: result.success,
+      accounts: accountsCount,
+      holdings: holdingsCount,
+      metricsErrors: metricsErrors.length,
+      errors: result.errors,
+      details: result,
+    });
+  } catch (err) {
+    console.error(
+      `Error performing full sync for user ${userId}:`,
+      err?.message || err
+    );
+    return res.status(500).json({
+      error: {
+        code: "FULL_SYNC_FAILED",
+        message: "Failed to perform full sync",
+        details: err?.message || String(err),
+      },
+    });
+  }
+});
+
 export default router;

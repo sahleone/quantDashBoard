@@ -2,7 +2,7 @@ import { useState, useEffect, useContext, useRef, useCallback } from "react";
 import "./ConnectBrokerage.css";
 import UserContext from "../../context/UserContext";
 import { authenticatedGet, authenticatedPost } from "../../utils/apiClient";
-import RefreshButton from "../refreshButton/refreshButton";
+
 
 function ConnectBrokerage() {
   const { userId } = useContext(UserContext);
@@ -142,7 +142,37 @@ function ConnectBrokerage() {
     }
   };
 
-  // Refresh button will call the refresh endpoint and then re-fetch lists
+  // Full sync state (source data + metrics pipeline)
+  const [fullSyncLoading, setFullSyncLoading] = useState(false);
+  const [fullSyncMessage, setFullSyncMessage] = useState(null);
+  const [fullSyncError, setFullSyncError] = useState(null);
+
+  const handleFullSync = async () => {
+    setFullSyncLoading(true);
+    setFullSyncMessage(null);
+    setFullSyncError(null);
+
+    try {
+      const response = await authenticatedPost("/api/accounts/sync/full", {
+        fullSync: false,
+      });
+      const data = response.data || {};
+      setFullSyncMessage(
+        `Sync complete — ${data.accounts ?? 0} accounts, ${data.holdings ?? 0} holdings updated, metrics recalculated`
+      );
+      // Refresh lists to reflect new data
+      await fetchAccounts();
+      await fetchConnections();
+      setTimeout(() => setFullSyncMessage(null), 6000);
+    } catch (err) {
+      console.error("Full sync failed:", err);
+      setFullSyncError(
+        err?.response?.data?.error?.message || err.message || "Full sync failed"
+      );
+    } finally {
+      setFullSyncLoading(false);
+    }
+  };
 
   return (
     <div className="connect-brokerage">
@@ -173,14 +203,28 @@ function ConnectBrokerage() {
           </form>
         </div>
 
-        {/* Right column: refresh button */}
+        {/* Right column: full sync button */}
         <div className="refresh-wrapper">
-          <RefreshButton
-            onSuccess={async () => {
-              await fetchAccounts();
-              await fetchConnections();
-            }}
-          />
+          <div className="full-sync-wrap">
+            <button
+              type="button"
+              className="full-sync-button"
+              onClick={handleFullSync}
+              disabled={fullSyncLoading}
+              aria-busy={fullSyncLoading}
+            >
+              {fullSyncLoading ? "Updating..." : "Update All Data"}
+            </button>
+            <p className="full-sync-hint">
+              Syncs accounts, holdings, prices, and recalculates all metrics
+            </p>
+            {fullSyncMessage && (
+              <div className="full-sync-success">{fullSyncMessage}</div>
+            )}
+            {fullSyncError && (
+              <div className="full-sync-error">Error: {fullSyncError}</div>
+            )}
+          </div>
         </div>
       </div>
 

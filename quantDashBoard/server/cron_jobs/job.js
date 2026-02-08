@@ -16,7 +16,7 @@
 import mongoose from "mongoose";
 import { config } from "../src/config/environment.js";
 import User from "../src/models/Users.js";
-import syncAllUserData from "../src/utils/syncAllUserData.js";
+import fullSyncForUser from "../src/utils/fullSyncForUser.js";
 import schedule from "node-schedule";
 
 // Small delay helper to avoid tight loops (milliseconds)
@@ -61,29 +61,28 @@ async function processAllUsers() {
       );
 
       try {
-        // Perform comprehensive sync with incremental updates (fullSync: false)
-        const result = await syncAllUserData(user.userId, user.userSecret, {
+        // Perform full sync: source data + metrics pipeline (incremental)
+        const result = await fullSyncForUser(user.userId, user.userSecret, {
           fullSync: false,
         });
 
-        // Calculate accurate counts
-        const accountsCount = result.accounts?.length || 0;
-        
-        // Sum up actual holdings count from all account results
+        // Calculate accurate counts from the sync sub-result
+        const syncData = result.sync || {};
+        const accountsCount = syncData.accounts?.length || 0;
+
         let holdingsCount = 0;
-        if (Array.isArray(result.holdings)) {
-          holdingsCount = result.holdings.reduce((sum, accountResult) => {
+        if (Array.isArray(syncData.holdings)) {
+          holdingsCount = syncData.holdings.reduce((sum, accountResult) => {
             if (accountResult.status === "success" && accountResult.holdings) {
               return sum + (accountResult.holdings.total || 0);
             }
             return sum;
           }, 0);
         }
-        
-        // Sum up actual options count from all account results
+
         let optionsCount = 0;
-        if (Array.isArray(result.options)) {
-          optionsCount = result.options.reduce((sum, accountResult) => {
+        if (Array.isArray(syncData.options)) {
+          optionsCount = syncData.options.reduce((sum, accountResult) => {
             if (accountResult.status === "success" && accountResult.count) {
               return sum + accountResult.count;
             }
@@ -91,23 +90,24 @@ async function processAllUsers() {
           }, 0);
         }
 
+        const metricsErrors = result.metrics?.errors?.length || 0;
+
         syncResults.push({
           userId: user.userId,
           success: result.success,
           accountsCount,
           holdingsCount,
           optionsCount,
-          accountsProcessed: result.holdings?.length || 0,
-          optionsAccountsProcessed: result.options?.length || 0,
+          metricsErrors,
           errors: result.errors,
         });
 
         console.log(
-          `[${user.userId}] Sync completed: ${accountsCount} accounts, ${holdingsCount} holdings, ${optionsCount} options`
+          `[${user.userId}] Full sync completed: ${accountsCount} accounts, ${holdingsCount} holdings, ${optionsCount} options, ${metricsErrors} metrics errors`
         );
       } catch (err) {
         console.error(
-          `[${user.userId}] Error during comprehensive sync:`,
+          `[${user.userId}] Error during full sync:`,
           err?.message || err
         );
         syncResults.push({
