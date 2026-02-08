@@ -1,13 +1,14 @@
 /**
- * Cron job(node-schedule): fetch all accounts from SnapTrade for all users that have
- * SnapTrade credentials, and store/update them in our MongoDB collection.
+ * Cron job(node-schedule): Comprehensive database sync for all users with SnapTrade credentials.
  *
  * Behavior:
  *  - Queries `users` collection for documents with a non-empty `userSecret`.
- *  - For each user, calls SnapTrade via the existing AccountServiceClientService
- *    to list accounts (snaptrade.accountInformation.listUserAccounts -> GET /accounts).
- *  - Upserts each account into the `SnapTradeAccount` model (server/src/models/AccountsList.js).
- *  - Performs basic error handling and logging.
+ *  - For each user, performs comprehensive sync:
+ *    - Accounts (via updateAccountsForUser)
+ *    - Holdings, positions, balances, activities (via updateAccountHoldingsForUser)
+ *    - Options (via OptionsServiceClientService)
+ *  - Runs at 10am and 4pm daily
+ *  - Performs incremental updates (last 30 days) by default
  *
  * Run: node server/cron_jobs/job.js
  */
@@ -15,58 +16,15 @@
 import mongoose from "mongoose";
 import { config } from "../src/config/environment.js";
 import User from "../src/models/Users.js";
-import AccountModel from "../src/models/AccountsList.js";
-import AccountServiceClientService from "../src/clients/accountClient.js";
+import syncAllUserData from "../src/utils/syncAllUserData.js";
 import schedule from "node-schedule";
 
 // Small delay helper to avoid tight loops (milliseconds)
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function upsertAccount(user, rawAccount) {
-  try {
-    if (!rawAccount || !rawAccount.id) return null;
-
-    const mapped = {
-      userId: user.userId,
-      brokerageAuthorizationId:
-        rawAccount.authorizationId ||
-        rawAccount.authorization_id ||
-        rawAccount.brokerage?.id ||
-        null,
-      accountId: rawAccount.id,
-      accountName: rawAccount.name || rawAccount.accountName || "Unknown",
-      number: rawAccount.number || rawAccount.account_number || null,
-      currency: rawAccount.currency?.code || rawAccount.currency || "USD",
-      institutionName:
-        rawAccount.institution_name || rawAccount.brokerage?.name || "Unknown",
-      createdDate: rawAccount.created_at
-        ? new Date(rawAccount.created_at)
-        : rawAccount.createdDate
-        ? new Date(rawAccount.createdDate)
-        : null,
-      raw_type: rawAccount.type || rawAccount.account_type || null,
-      status: rawAccount.status || rawAccount.state || null,
-    };
-
-    // upsert by accountId - AccountsList has unique index on accountId
-    const updated = await AccountModel.findOneAndUpdate(
-      { accountId: mapped.accountId },
-      { $set: mapped },
-      { upsert: true, new: true, setDefaultsOnInsert: true }
-    );
-
-    return updated;
-  } catch (err) {
-    console.error(
-      `Failed to upsert account ${rawAccount?.id} for user ${user.userId}:`,
-      err?.message || err
-    );
-    return null;
-  }
-}
-
 async function processAllUsers() {
-  console.log("SnapTrade accounts job starting...");
+  console.log("Comprehensive database sync job starting...");
+  const startTime = new Date().toISOString();
 
   // Connect (we connect/disconnect per run to keep the implementation simple)
   try {
@@ -86,7 +44,7 @@ async function processAllUsers() {
     }).lean();
     console.log(`Found ${users.length} users with SnapTrade credentials.`);
 
-    const accountService = new AccountServiceClientService();
+    const syncResults = [];
 
     for (const user of users) {
       if (!user.userId || !user.userSecret) {
@@ -97,43 +55,84 @@ async function processAllUsers() {
       }
 
       console.log(
-        `Fetching accounts for user ${user.userId} (${
+        `\n[${user.userId}] Starting comprehensive sync for user ${
           user.email || "no-email"
-        })`
+        }`
       );
 
-      let accounts = [];
       try {
-        accounts = await accountService.listAccounts(
-          user.userId,
-          user.userSecret
+        // Perform comprehensive sync with incremental updates (fullSync: false)
+        const result = await syncAllUserData(user.userId, user.userSecret, {
+          fullSync: false,
+        });
+
+        // Calculate accurate counts
+        const accountsCount = result.accounts?.length || 0;
+        
+        // Sum up actual holdings count from all account results
+        let holdingsCount = 0;
+        if (Array.isArray(result.holdings)) {
+          holdingsCount = result.holdings.reduce((sum, accountResult) => {
+            if (accountResult.status === "success" && accountResult.holdings) {
+              return sum + (accountResult.holdings.total || 0);
+            }
+            return sum;
+          }, 0);
+        }
+        
+        // Sum up actual options count from all account results
+        let optionsCount = 0;
+        if (Array.isArray(result.options)) {
+          optionsCount = result.options.reduce((sum, accountResult) => {
+            if (accountResult.status === "success" && accountResult.count) {
+              return sum + accountResult.count;
+            }
+            return sum;
+          }, 0);
+        }
+
+        syncResults.push({
+          userId: user.userId,
+          success: result.success,
+          accountsCount,
+          holdingsCount,
+          optionsCount,
+          accountsProcessed: result.holdings?.length || 0,
+          optionsAccountsProcessed: result.options?.length || 0,
+          errors: result.errors,
+        });
+
+        console.log(
+          `[${user.userId}] Sync completed: ${accountsCount} accounts, ${holdingsCount} holdings, ${optionsCount} options`
         );
-      } catch (apiErr) {
+      } catch (err) {
         console.error(
-          `SnapTrade API error for user ${user.userId}:`,
-          apiErr?.message || apiErr
+          `[${user.userId}] Error during comprehensive sync:`,
+          err?.message || err
         );
-        continue;
+        syncResults.push({
+          userId: user.userId,
+          success: false,
+          error: err?.message || String(err),
+        });
       }
 
-      if (!Array.isArray(accounts) || accounts.length === 0) {
-        console.log(`No accounts returned for user ${user.userId}`);
-        await delay(200);
-        continue;
-      }
-
-      for (const acc of accounts) {
-        const saved = await upsertAccount(user, acc);
-        if (saved)
-          console.log(
-            `Upserted account ${saved.accountId} for user ${user.userId}`
-          );
-      }
-
+      // Small delay between users to avoid rate limiting
       await delay(200);
     }
 
-    console.log("SnapTrade accounts job finished.");
+    const endTime = new Date().toISOString();
+    const successful = syncResults.filter((r) => r.success).length;
+    const failed = syncResults.filter((r) => !r.success).length;
+
+    console.log("\n" + "=".repeat(80));
+    console.log("Comprehensive database sync job finished.");
+    console.log(`Started: ${startTime}`);
+    console.log(`Finished: ${endTime}`);
+    console.log(`Total users: ${users.length}`);
+    console.log(`Successful: ${successful}`);
+    console.log(`Failed: ${failed}`);
+    console.log("=".repeat(80));
   } finally {
     // Always disconnect to keep the run simple and stateless
     try {
@@ -145,8 +144,9 @@ async function processAllUsers() {
 }
 
 // Scheduling configuration (no .env reads here per request)
-// Always schedule daily at 06:00 local time
-const CRON_EXPR = "0 6 * * *";
+// Schedule daily at 10:00 AM and 4:00 PM local time
+const CRON_EXPR_10AM = "0 10 * * *";
+const CRON_EXPR_4PM = "0 16 * * *";
 // Always run immediately on start (unless the user passes --run-once)
 const RUN_ON_START = true;
 // RUN_ONCE is controllable via command-line only (no .env reads)
@@ -166,15 +166,40 @@ if (RUN_ONCE) {
     }
   })();
 } else {
-  // Schedule the job using node-schedule and keep process alive
-  console.log(`Scheduling SnapTrade accounts job with cron: "${CRON_EXPR}"`);
-  schedule.scheduleJob(CRON_EXPR, async () => {
-    console.log(`Scheduled job triggered at ${new Date().toISOString()}`);
+  // Schedule the jobs using node-schedule and keep process alive
+  console.log(
+    `Scheduling comprehensive database sync jobs:`
+  );
+  console.log(`  - Daily at 10:00 AM (cron: "${CRON_EXPR_10AM}")`);
+  console.log(`  - Daily at 4:00 PM (cron: "${CRON_EXPR_4PM}")`);
+
+  // Schedule 10am job
+  schedule.scheduleJob(CRON_EXPR_10AM, async () => {
+    console.log(
+      `\n[10AM JOB] Scheduled job triggered at ${new Date().toISOString()}`
+    );
     try {
       await processAllUsers();
-      console.log(`Scheduled job finished at ${new Date().toISOString()}`);
+      console.log(
+        `[10AM JOB] Scheduled job finished at ${new Date().toISOString()}`
+      );
     } catch (err) {
-      console.error("Scheduled job error:", err);
+      console.error("[10AM JOB] Scheduled job error:", err);
+    }
+  });
+
+  // Schedule 4pm job
+  schedule.scheduleJob(CRON_EXPR_4PM, async () => {
+    console.log(
+      `\n[4PM JOB] Scheduled job triggered at ${new Date().toISOString()}`
+    );
+    try {
+      await processAllUsers();
+      console.log(
+        `[4PM JOB] Scheduled job finished at ${new Date().toISOString()}`
+      );
+    } catch (err) {
+      console.error("[4PM JOB] Scheduled job error:", err);
     }
   });
 

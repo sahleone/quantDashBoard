@@ -208,11 +208,11 @@ export function calculateTWRFromTimeseries(portfolioTimeseries) {
 /**
  * Calculate TWR from dailyTWRReturn values for a custom period
  *
- * Geometrically links daily TWR returns over the specified period.
- * Formula: TWR = (1 + r₁) × (1 + r₂) × ... × (1 + rₙ) - 1
- * where rᵢ are the dailyTWRReturn values
+ * Sums log returns and converts back to simple return.
+ * Formula: TWR = exp(ln(r₁) + ln(r₂) + ... + ln(rₙ)) - 1 = exp(Σ ln(rᵢ)) - 1
+ * where rᵢ are the daily return ratios and dailyTWRReturn contains ln(rᵢ)
  *
- * @param {Array} portfolioData - Array of portfolio timeseries records with dailyTWRReturn field, sorted by date
+ * @param {Array} portfolioData - Array of portfolio timeseries records with dailyTWRReturn field (log returns), sorted by date
  * @param {Date} startDate - Start date for the period (inclusive)
  * @param {Date} endDate - End date for the period (inclusive)
  * @returns {number|null} - TWR as a decimal (e.g., 0.15 for 15%), or null if insufficient data
@@ -238,7 +238,8 @@ export function calculateTWRFromDailyReturns(
     return null;
   }
 
-  let cumulative = 1;
+  // Sum log returns (since dailyTWRReturn is now a log return)
+  let sumLogReturns = 0;
   let hasValidReturns = false;
 
   for (const dayData of periodData) {
@@ -248,7 +249,7 @@ export function calculateTWRFromDailyReturns(
       !isNaN(dayData.dailyTWRReturn) &&
       isFinite(dayData.dailyTWRReturn)
     ) {
-      cumulative *= 1 + dayData.dailyTWRReturn;
+      sumLogReturns += dayData.dailyTWRReturn;
       hasValidReturns = true;
     }
   }
@@ -257,6 +258,8 @@ export function calculateTWRFromDailyReturns(
     return null;
   }
 
+  // Convert sum of log returns back to simple return: exp(sum) - 1
+  const cumulative = Math.exp(sumLogReturns);
   const twr = cumulative - 1;
   return isFinite(twr) ? twr : null;
 }

@@ -199,6 +199,9 @@ async function calculatePeriodMetrics(accountId, userId, period, asOfDate, db) {
       break;
     case "ALL":
       twrReturn = latest.twrAllTime;
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/033a683d-b3d0-4415-8284-d7ee35a9e662',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'calculateMetrics.js:201',message:'ALL period: twrAllTime from latest record',data:{accountId:accountId,period:period,twrAllTime:twrReturn,startValue:startValue,endValue:endValue,portfolioDataLength:portfolioData.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+      // #endregion
       break;
     case "1M":
     case "1Y":
@@ -217,10 +220,18 @@ async function calculatePeriodMetrics(accountId, userId, period, asOfDate, db) {
 
   // Fallback to calculation from timeseries if pre-calculated value not available
   if (twrReturn === null || twrReturn === undefined) {
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/033a683d-b3d0-4415-8284-d7ee35a9e662',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'calculateMetrics.js:219',message:'ALL period: using fallback calculation',data:{accountId:accountId,period:period,startValue:startValue,endValue:endValue,portfolioDataLength:portfolioData.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+    // #endregion
     metrics.totalReturn =
       returnsMetrics.calculateTWRFromTimeseries(portfolioData);
   } else {
     metrics.totalReturn = twrReturn;
+    // #region agent log
+    if (twrReturn <= -0.99) {
+      fetch('http://127.0.0.1:7243/ingest/033a683d-b3d0-4415-8284-d7ee35a9e662',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'calculateMetrics.js:223',message:'ALL period: twrReturn is -100%',data:{accountId:accountId,period:period,twrReturn:twrReturn,startValue:startValue,endValue:endValue},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+    }
+    // #endregion
   }
 
   const days = Math.ceil((endDate - actualStartDate) / (1000 * 60 * 60 * 24));

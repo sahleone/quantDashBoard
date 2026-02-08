@@ -123,3 +123,4 @@ If options are missing:
 2. Add option value calculation to `calculatePortfolioValue`
 3. Re-run pipeline
 4. Re-run sanity check to verify
+

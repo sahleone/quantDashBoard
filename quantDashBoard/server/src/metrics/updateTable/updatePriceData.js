@@ -1,13 +1,16 @@
 /**
  * updatePriceData.js
  *
- * Fetches and stores daily price data and corporate actions (stock splits, dividends)
- * for all unique symbols in EquitiesWeightTimeseries.
+ * Fetches and stores daily price data (adjusted close prices) for all unique symbols
+ * in EquitiesWeightTimeseries.
  * Uses Yahoo Finance API via yahooFinanceClient.js.
  *
  * Processes by symbol (across all users), not by user - each symbol is fetched once
- * even if multiple users hold it. This is more efficient because price data and
- * corporate actions are symbol-based, not user-based.
+ * even if multiple users hold it. This is more efficient because price data is
+ * symbol-based, not user-based.
+ *
+ * Note: Uses adjusted close prices from Yahoo Finance, which automatically account
+ * for stock splits and dividends, eliminating the need to manually process corporate actions.
  *
  * Options (opts):
  *  - databaseUrl: MongoDB connection string (falls back to env DATABASE_URL)
@@ -18,15 +21,12 @@
  */
 
 import mongoose from "mongoose";
-import PriceHistory from "../../../models/PriceHistory.js";
-import CorporateActions from "../../../models/CorporateActions.js";
-import EquitiesWeightTimeseries from "../../../models/EquitiesWeightTimeseries.js";
+import PriceHistory from "../../models/PriceHistory.js";
+import EquitiesWeightTimeseries from "../../models/EquitiesWeightTimeseries.js";
 import {
   fetchHistoricalPrices,
   fetchMultipleSymbols,
-  fetchStockSplits,
-  fetchDividends,
-} from "../../../utils/yahooFinanceClient.js";
+} from "../../utils/yahooFinanceClient.js";
 
 /**
  * Get all unique symbols from EquitiesWeightTimeseries
@@ -124,85 +124,6 @@ async function getMissingDates(symbol, requiredDateRange, opts = {}) {
   }
 
   return missingDates;
-}
-
-/**
- * Process corporate actions for a single symbol: fetch and store stock splits and dividends
- *
- * IMPORTANT: Fetches ALL historical corporate actions, not limited by current positions date range.
- * This ensures that if older historical positions are added later, the corporate actions
- * will already be in the database for accurate split-adjusted valuations.
- */
-async function processCorporateActions(symbol, opts = {}) {
-  try {
-    // Skip option tickers that contain spaces (they don't have corporate actions)
-    if (symbol.includes(" ") && symbol.trim() !== symbol.replace(/\s+/g, "")) {
-      return { symbol, status: "skipped", reason: "option_ticker" };
-    }
-
-    const db = mongoose.connection.db;
-    const corporateActionsCollection = db.collection("corporateactions");
-
-    // Check if corporate actions already exist in database
-    const existing = await corporateActionsCollection.findOne({ symbol });
-
-    // If exists and not forcing refresh, skip (corporate actions are historical and don't change)
-    if (existing && !opts.forceRefresh) {
-      return {
-        symbol,
-        status: "skipped",
-        reason: "corporate_actions_exist",
-        splitsCount: existing.splits?.length || 0,
-        dividendsCount: existing.dividends?.length || 0,
-      };
-    }
-
-    // Fetch ALL historical stock splits (no date range limit)
-    // Use a very early date to ensure we get all historical splits
-    const allTimeStartDate = new Date("1970-01-01");
-    const allTimeEndDate = new Date();
-
-    const splits = await fetchStockSplits(
-      symbol,
-      allTimeStartDate,
-      allTimeEndDate
-    );
-
-    // Fetch ALL historical dividends (no date range limit)
-    const dividends = await fetchDividends(
-      symbol,
-      allTimeStartDate,
-      allTimeEndDate
-    );
-
-    // Store ALL corporate actions in database (not filtered by date range)
-    await corporateActionsCollection.updateOne(
-      { symbol },
-      {
-        $set: {
-          symbol: symbol,
-          splits: splits,
-          dividends: dividends,
-          lastUpdated: new Date(),
-          source: "yahoo_finance",
-        },
-      },
-      { upsert: true }
-    );
-
-    return {
-      symbol,
-      status: "success",
-      splitsCount: splits.length,
-      dividendsCount: dividends.length,
-    };
-  } catch (error) {
-    return {
-      symbol,
-      status: "error",
-      reason: error.message || String(error),
-    };
-  }
 }
 
 /**
@@ -375,10 +296,6 @@ export async function updatePriceData(opts = {}) {
     processed: 0,
     skipped: 0,
     newPrices: 0,
-    corporateActionsProcessed: 0,
-    corporateActionsSkipped: 0,
-    totalSplits: 0,
-    totalDividends: 0,
     errors: [],
   };
 
@@ -427,24 +344,11 @@ export async function updatePriceData(opts = {}) {
               forceRefresh,
             });
 
-            // Process corporate actions
-            const corporateActionsResult = await processCorporateActions(
-              symbol,
-              {
-                forceRefresh,
-              }
-            );
-
-            return { symbol, priceResult, corporateActionsResult };
+            return { symbol, priceResult };
           } catch (error) {
             return {
               symbol,
               priceResult: {
-                symbol,
-                status: "error",
-                reason: error.message || String(error),
-              },
-              corporateActionsResult: {
                 symbol,
                 status: "error",
                 reason: error.message || String(error),
@@ -460,53 +364,21 @@ export async function updatePriceData(opts = {}) {
       );
 
       // Process results and update summary
-      for (const {
-        symbol,
-        priceResult,
-        corporateActionsResult,
-      } of batchResults) {
-         // Update summary for prices
-         if (priceResult.status === "success") {
-           summary.processed++;
-           summary.newPrices += priceResult.pricesStored || 0;
-           const optionNote = priceResult.isOption ? " (option, price=0)" : "";
-           const cryptoNote = priceResult.isCrypto ? " (crypto, normalized to -USD)" : "";
-           console.log(
-             `  ✓ ${symbol}: stored ${priceResult.pricesStored} prices${optionNote}${cryptoNote}`
-           );
+      for (const { symbol, priceResult } of batchResults) {
+        if (priceResult.status === "success") {
+          summary.processed++;
+          summary.newPrices += priceResult.pricesStored || 0;
+          const optionNote = priceResult.isOption ? " (option, price=0)" : "";
+          const cryptoNote = priceResult.isCrypto ? " (crypto, normalized to -USD)" : "";
+          console.log(
+            `  ✓ ${symbol}: stored ${priceResult.pricesStored} prices${optionNote}${cryptoNote}`
+          );
         } else if (priceResult.status === "skipped") {
           summary.skipped++;
           console.log(`  - ${symbol} (prices): ${priceResult.reason}`);
         } else {
           summary.errors.push({ ...priceResult, type: "price" });
           console.error(`  ✗ ${symbol} (prices): ${priceResult.reason}`);
-        }
-
-        // Update summary for corporate actions
-        if (corporateActionsResult.status === "success") {
-          summary.corporateActionsProcessed++;
-          summary.totalSplits += corporateActionsResult.splitsCount || 0;
-          summary.totalDividends += corporateActionsResult.dividendsCount || 0;
-          console.log(
-            `  ✓ ${symbol}: stored ${
-              corporateActionsResult.splitsCount || 0
-            } splits, ${corporateActionsResult.dividendsCount || 0} dividends`
-          );
-        } else if (corporateActionsResult.status === "skipped") {
-          summary.corporateActionsSkipped++;
-          if (corporateActionsResult.reason !== "option_ticker") {
-            console.log(
-              `  - ${symbol} (corporate actions): ${corporateActionsResult.reason}`
-            );
-          }
-        } else {
-          summary.errors.push({
-            ...corporateActionsResult,
-            type: "corporate_actions",
-          });
-          console.error(
-            `  ✗ ${symbol} (corporate actions): ${corporateActionsResult.reason}`
-          );
         }
       }
 
@@ -530,11 +402,6 @@ export async function updatePriceData(opts = {}) {
       `Prices - Processed: ${summary.processed}, Skipped: ${summary.skipped}`
     );
     console.log(`New prices stored: ${summary.newPrices}`);
-    console.log(
-      `Corporate Actions - Processed: ${summary.corporateActionsProcessed}, Skipped: ${summary.corporateActionsSkipped}`
-    );
-    console.log(`Total splits stored: ${summary.totalSplits}`);
-    console.log(`Total dividends stored: ${summary.totalDividends}`);
     console.log(`Errors: ${summary.errors.length}`);
   } catch (error) {
     console.error("Error in updatePriceData:", error);

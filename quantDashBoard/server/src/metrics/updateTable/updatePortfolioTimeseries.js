@@ -4,6 +4,12 @@
  * Builds portfolio valuation timeseries from positions, prices, and cash flows.
  * Implements the logic from returnsTest/activities.py build_portfolio_timeseries().
  *
+ * External flows (cashflows that split TWR periods):
+ *  - CONTRIBUTION, DEPOSIT, WITHDRAWAL: External deposits/withdrawals
+ *  - DIVIDEND: Dividends are treated as cashflows
+ *  - BUY/SELL with option_symbol: Option transactions are treated as cashflows
+ *  Note: Regular stock BUY/SELL (non-options) are NOT external flows
+ *
  * Options (opts):
  *  - databaseUrl: MongoDB connection string (falls back to env DATABASE_URL)
  *  - userId: optional; when set only process that user's accounts
@@ -12,10 +18,10 @@
  */
 
 import mongoose from "mongoose";
-import PortfolioTimeseries from "../../../models/PortfolioTimeseries.js";
-import EquitiesWeightTimeseries from "../../../models/EquitiesWeightTimeseries.js";
-import PriceHistory from "../../../models/PriceHistory.js";
-import AccountActivities from "../../../models/AccountActivities.js";
+import PortfolioTimeseries from "../../models/PortfolioTimeseries.js";
+import EquitiesWeightTimeseries from "../../models/EquitiesWeightTimeseries.js";
+import PriceHistory from "../../models/PriceHistory.js";
+import AccountActivities from "../../models/AccountActivities.js";
 
 /**
  * Check if a symbol is a crypto symbol that needs "-USD" suffix
@@ -271,6 +277,11 @@ async function calculateStockValueFromUnits(units, date, db) {
  * 3. Initialize cash = 0
  * 4. For each date, process activities in order, updating cash balance
  *
+ * External flows (cashflows that split TWR periods):
+ *  - CONTRIBUTION, DEPOSIT, WITHDRAWAL: External deposits/withdrawals
+ *  - DIVIDEND: Dividends are treated as cashflows
+ *  - BUY/SELL with option_symbol: Option transactions are treated as cashflows
+ *
  * @param {string} accountId - Account ID
  * @param {Object} db - MongoDB database connection
  * @param {Date} endDate - End date for calculations
@@ -353,12 +364,14 @@ async function buildCashAndFlows(
   const extFlowCum = new Map();
 
   // External flow types (for returns calculation)
-  // These are deposits/withdrawals that should NOT affect returns
-  // Note: DIVIDEND, FEE, and INTEREST are NOT external flows:
-  //   - DIVIDEND: Investment return (should be included in returns)
+  // These are cashflows that split TWR periods:
+  //   - CONTRIBUTION, DEPOSIT, WITHDRAWAL: External deposits/withdrawals
+  //   - DIVIDEND: Dividends are treated as cashflows to split TWR periods
+  //   - BUY/SELL with option_symbol: Option transactions are treated as cashflows
+  // Note: FEE and INTEREST are NOT external flows (they're investment costs/returns)
   //   - FEE: Money you owe to broker (margin interest, account fees) - negative amount
   //   - INTEREST: Money broker owes you (interest on cash) - positive amount
-  const EXT_TYPES = new Set(["CONTRIBUTION", "DEPOSIT", "WITHDRAWAL"]);
+  const EXT_TYPES = new Set(["CONTRIBUTION", "DEPOSIT", "WITHDRAWAL", "DIVIDEND"]);
 
   let runningExtFlow = 0;
   let minCashValue = 0;
@@ -388,16 +401,31 @@ async function buildCashAndFlows(
       cash += amount;
       dayCashFlow += amount;
 
-      // Track external flows for returns calculation
-      // Only CONTRIBUTION, DEPOSIT, and WITHDRAWAL are external flows
-      // DIVIDEND, FEE, and INTEREST are NOT external flows (they're investment returns/costs)
-      if (EXT_TYPES.has(type)) {
+      // Track external flows for returns calculation (these split TWR periods)
+      // External flows include:
+      //   - CONTRIBUTION, DEPOSIT, WITHDRAWAL: External deposits/withdrawals
+      //   - DIVIDEND: Dividends are treated as cashflows
+      //   - BUY/SELL with option_symbol: Option transactions are treated as cashflows
+      // Note: Regular stock BUY/SELL (non-options) are NOT external flows
+      // Note: FEE and INTEREST are NOT external flows (they're investment costs/returns)
+      
+      // Check if this is an option transaction (BUY/SELL with option_symbol)
+      const isOptionTransaction = 
+        (type === "BUY" || type === "SELL") &&
+        activity.option_symbol !== null &&
+        activity.option_symbol !== undefined;
+
+      // Determine if this activity is an external flow
+      const isExternalFlow = EXT_TYPES.has(type) || isOptionTransaction;
+
+      if (isExternalFlow) {
         let extAmount = amount;
         if (type === "WITHDRAWAL") {
           extAmount = -Math.abs(amount);
         } else if (type === "CONTRIBUTION" || type === "DEPOSIT") {
           extAmount = Math.abs(amount);
         }
+        // For DIVIDEND and option transactions, use the amount as-is (already has correct sign)
 
         dayExtFlow += extAmount;
         runningExtFlow += extAmount;
@@ -459,6 +487,9 @@ async function buildCashAndFlows(
 /**
  * Calculate flow-adjusted returns and equity indices
  * Implements returns calculation logic from activities.py
+ *
+ * Uses depositWithdrawal field (which includes dividends and option transactions)
+ * to calculate TWR returns that properly split periods at cashflow events.
  */
 function calculateReturns(portfolioData) {
   const dates = Array.from(portfolioData.keys()).sort();
@@ -488,17 +519,35 @@ function calculateReturns(portfolioData) {
 
     if (Math.abs(startValueWithCF) < 1e-6) {
       curr.dailyTWRReturn = 0;
+    } else if (endValueBeforeCF <= 0) {
+      // Can't take log of zero or negative - this usually indicates missing prices
+      // or data quality issues. Set to 0 (no return) rather than -10 to avoid
+      // extreme negative sums that cause -100% returns
+      curr.dailyTWRReturn = 0;
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/033a683d-b3d0-4415-8284-d7ee35a9e662',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'updatePortfolioTimeseries.js:520',message:'calculateReturns: endValueBeforeCF <= 0, setting log return to 0',data:{date:currDate,V_prev:V_prev,V_curr:V_curr,CF:CF,endValueBeforeCF:endValueBeforeCF,startValueWithCF:startValueWithCF},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+      // #endregion
     } else {
-      const twrReturn = endValueBeforeCF / startValueWithCF - 1;
+      // Calculate log return: ln(V_end / V_start)
+      const ratio = endValueBeforeCF / startValueWithCF;
+      // Clamp ratio to prevent log(0) or extreme values
+      const clampedRatio = Math.max(ratio, 1e-10);
+      const logReturn = Math.log(clampedRatio);
+
+      // #region agent log
+      if (!isFinite(logReturn) || Math.abs(logReturn) > 10) {
+        fetch('http://127.0.0.1:7243/ingest/033a683d-b3d0-4415-8284-d7ee35a9e662',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'updatePortfolioTimeseries.js:530',message:'calculateReturns: extreme log return detected',data:{date:currDate,V_prev:V_prev,V_curr:V_curr,CF:CF,endValueBeforeCF:endValueBeforeCF,startValueWithCF:startValueWithCF,ratio:ratio,clampedRatio:clampedRatio,logReturn:logReturn},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+      }
+      // #endregion
 
       if (
-        isNaN(twrReturn) ||
-        !isFinite(twrReturn) ||
-        Math.abs(twrReturn) > 10
+        isNaN(logReturn) ||
+        !isFinite(logReturn) ||
+        Math.abs(logReturn) > 10
       ) {
         curr.dailyTWRReturn = 0;
       } else {
-        curr.dailyTWRReturn = twrReturn;
+        curr.dailyTWRReturn = logReturn;
       }
     }
   }
@@ -574,7 +623,7 @@ function calculateReturns(portfolioData) {
  * Formula: TWR = (1 + r₁) × (1 + r₂) × ... × (1 + rₙ) - 1
  * where rᵢ are the daily TWR returns
  *
- * @param {Map<string, Object>} portfolioData - Map of date strings to portfolio data with dailyTWRReturn already calculated
+ * @param {Map<string, Object>} portfolioData - Map of date strings to portfolio data with dailyTWRReturn already calculated (as log returns)
  * @returns {Map<string, Object>} - Updated portfolio data with twr1Day, twr3Months, twrYearToDate, twrAllTime
  */
 function calculatePeriodTWRReturns(portfolioData) {
@@ -590,11 +639,17 @@ function calculatePeriodTWRReturns(portfolioData) {
     const currentDate = dates[i];
     const currentData = portfolioData.get(currentDate);
 
-    currentData.twr1Day =
+    // Convert log return to simple return for 1-day: exp(logReturn) - 1
+    if (
       currentData.dailyTWRReturn !== undefined &&
-      currentData.dailyTWRReturn !== null
-        ? currentData.dailyTWRReturn
-        : null;
+      currentData.dailyTWRReturn !== null &&
+      isFinite(currentData.dailyTWRReturn)
+    ) {
+      const simpleReturn = Math.exp(currentData.dailyTWRReturn) - 1;
+      currentData.twr1Day = isFinite(simpleReturn) ? simpleReturn : null;
+    } else {
+      currentData.twr1Day = null;
+    }
 
     const [currentYear, currentMonth, currentDay] = currentDate
       .split("-")
@@ -638,8 +693,10 @@ function calculatePeriodTWRReturns(portfolioData) {
         return null;
       }
 
-      let cumulative = 1;
+      // Sum log returns (since dailyTWRReturn is now a log return)
+      let sumLogReturns = 0;
       let hasValidReturns = false;
+      let extremeReturns = []; // Track very negative log returns
 
       for (const dateStr of periodDates) {
         const dayData = portfolioData.get(dateStr);
@@ -648,14 +705,32 @@ function calculatePeriodTWRReturns(portfolioData) {
           dayData.dailyTWRReturn !== undefined &&
           dayData.dailyTWRReturn !== null
         ) {
-          cumulative *= 1 + dayData.dailyTWRReturn;
-          hasValidReturns = true;
+          const logReturn = dayData.dailyTWRReturn;
+          // #region agent log
+          if (logReturn <= -5 || !isFinite(logReturn)) {
+            extremeReturns.push({ date: dateStr, logReturn: logReturn });
+          }
+          // #endregion
+          if (isFinite(logReturn)) {
+            sumLogReturns += logReturn;
+            hasValidReturns = true;
+          }
         }
       }
 
       if (!hasValidReturns) return null;
 
-      return cumulative - 1;
+      // Convert sum of log returns back to simple return: exp(sum) - 1
+      const cumulative = Math.exp(sumLogReturns);
+      const result = cumulative - 1;
+      
+      // #region agent log
+      if (result <= -0.99 || extremeReturns.length > 0 || !isFinite(result)) {
+        fetch('http://127.0.0.1:7243/ingest/033a683d-b3d0-4415-8284-d7ee35a9e662',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'updatePortfolioTimeseries.js:705',message:'geometricLink: result is -100% or extreme log returns found',data:{result:result,sumLogReturns:sumLogReturns,cumulative:cumulative,extremeReturns:extremeReturns,period:startDateStr+' to '+endDateStr},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+      }
+      // #endregion
+      
+      return isFinite(result) ? result : null;
     };
 
     const start3M =

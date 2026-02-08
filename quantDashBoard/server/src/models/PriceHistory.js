@@ -9,11 +9,15 @@ import mongoose from "mongoose";
  * Structure:
  * - symbol: Ticker symbol (required, indexed)
  * - date: Date of the price (required, indexed)
- * - close: Closing price (required)
+ * - close: Adjusted closing price (required) - accounts for stock splits and dividends
  * - open: Opening price (optional)
  * - high: High price (optional)
  * - low: Low price (optional)
  * - volume: Trading volume (optional)
+ * 
+ * Note: The 'close' field stores adjusted close prices from Yahoo Finance, which automatically
+ * account for stock splits and dividends. This eliminates the need to manually adjust position
+ * units for splits.
  * 
  * Indexed by (symbol, date) for efficient queries and uniqueness.
  */
@@ -32,6 +36,7 @@ const priceHistorySchema = new mongoose.Schema(
     close: {
       type: Number,
       required: true,
+      // Stores adjusted close price (accounts for splits and dividends)
     },
     open: {
       type: Number,

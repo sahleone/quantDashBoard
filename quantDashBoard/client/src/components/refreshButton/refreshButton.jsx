@@ -26,24 +26,17 @@ function RefreshButton({ className = "", onSuccess, onError, children }) {
     try {
       // Send userId when available; server also accepts JWT via cookie/headers
       const body = userId ? { userId } : {};
-      // Refresh accounts and connections in parallel. We keep the same accounts
-      // endpoint for backwards compatibility and also refresh connections.
-      const [accountsResp, connectionsResp, holdingsResp] = await Promise.all([
-        authenticatedPost("/api/accounts/refresh", body),
-        authenticatedPost("/api/connections/refresh", body),
-        // New endpoint: update holdings for all accounts across connections
-        authenticatedPost("/api/accounts/sync/holdings/connections", {
-          ...body,
-          fullSync: false,
-        }),
-      ]);
+      
+      // Use comprehensive sync endpoint that handles all data types
+      const syncResp = await authenticatedPost("/api/accounts/sync/all", {
+        ...body,
+        fullSync: false,
+      });
 
       setMessage("Data refreshed");
       if (onSuccess)
         onSuccess({
-          accounts: accountsResp,
-          connections: connectionsResp,
-          holdings: holdingsResp,
+          sync: syncResp,
         });
 
       // Clear message after short delay

@@ -68,3 +68,4 @@ if (symbol.includes(" ")) {
 2. Fetch option holdings from SnapTrade API for each date
 3. Calculate option values using market_value from SnapTrade or price _ units _ multiplier
 4. Include options in portfolio valuation calculation
+

@@ -127,48 +127,52 @@ class MetricsController {
         existing.cashFlow += record.depositWithdrawal || 0;
         portfolioByDate.set(dateKey, existing);
 
-        const recordDate = new Date(record.date);
-        const hasTWRData =
-          (record.twr1Day !== null && record.twr1Day !== undefined) ||
-          (record.twr3Months !== null && record.twr3Months !== undefined) ||
-          (record.twrYearToDate !== null &&
-            record.twrYearToDate !== undefined) ||
-          (record.twrAllTime !== null && record.twrAllTime !== undefined);
+        // Only use pre-calculated TWR from database if a specific account is selected
+        // For "All Portfolios", we'll recalculate from aggregated data
+        if (accountId) {
+          const recordDate = new Date(record.date);
+          const hasTWRData =
+            (record.twr1Day !== null && record.twr1Day !== undefined) ||
+            (record.twr3Months !== null && record.twr3Months !== undefined) ||
+            (record.twrYearToDate !== null &&
+              record.twrYearToDate !== undefined) ||
+            (record.twrAllTime !== null && record.twrAllTime !== undefined);
 
-        if (hasTWRData && (!latestDate || recordDate >= latestDate)) {
-          latestDate = recordDate;
-          latestTWRMetrics = {
-            twr1Day: record.twr1Day,
-            twr3Months: record.twr3Months,
-            twrYearToDate: record.twrYearToDate,
-            twrAllTime: record.twrAllTime,
-          };
+          if (hasTWRData && (!latestDate || recordDate >= latestDate)) {
+            latestDate = recordDate;
+            latestTWRMetrics = {
+              twr1Day: record.twr1Day,
+              twr3Months: record.twr3Months,
+              twrYearToDate: record.twrYearToDate,
+              twrAllTime: record.twrAllTime,
+            };
 
-          // Get the appropriate TWR return for the selected range
-          const rangeUpper = range.toUpperCase();
-          switch (rangeUpper) {
-            case "3M":
-              rangeTWRReturn = record.twr3Months;
-              break;
-            case "YTD":
-              rangeTWRReturn = record.twrYearToDate;
-              break;
-            case "ALL":
-            case "ITD":
-            case "ALLTIME":
-              rangeTWRReturn = record.twrAllTime;
-              break;
-            case "1M":
-            case "1Y":
-              // For 1M and 1Y, calculate from dailyTWRReturn
-              rangeTWRReturn = calculateTWRFromDailyReturns(
-                timeseriesData,
-                startDate,
-                endDate
-              );
-              break;
-            default:
-              rangeTWRReturn = record.twrAllTime;
+            // Get the appropriate TWR return for the selected range
+            const rangeUpper = range.toUpperCase();
+            switch (rangeUpper) {
+              case "3M":
+                rangeTWRReturn = record.twr3Months;
+                break;
+              case "YTD":
+                rangeTWRReturn = record.twrYearToDate;
+                break;
+              case "ALL":
+              case "ITD":
+              case "ALLTIME":
+                rangeTWRReturn = record.twrAllTime;
+                break;
+              case "1M":
+              case "1Y":
+                // For 1M and 1Y, calculate from dailyTWRReturn
+                rangeTWRReturn = calculateTWRFromDailyReturns(
+                  timeseriesData,
+                  startDate,
+                  endDate
+                );
+                break;
+              default:
+                rangeTWRReturn = record.twrAllTime;
+            }
           }
         }
       });
@@ -180,6 +184,45 @@ class MetricsController {
           cashFlow: point.cashFlow,
         }))
         .sort((a, b) => new Date(a.date) - new Date(b.date));
+
+      // If "All Portfolios" is selected, recalculate TWR from aggregated data
+      if (!accountId && portfolioValues.length >= 2) {
+        latestTWRMetrics = this.calculateTWRMetricsFromAggregatedData(
+          portfolioValues,
+          range
+        );
+
+        // Get the appropriate TWR return for the selected range from aggregated metrics
+        const rangeUpper = range.toUpperCase();
+        switch (rangeUpper) {
+          case "3M":
+            rangeTWRReturn = latestTWRMetrics.twr3Months;
+            break;
+          case "YTD":
+            rangeTWRReturn = latestTWRMetrics.twrYearToDate;
+            break;
+          case "ALL":
+          case "ITD":
+          case "ALLTIME":
+            rangeTWRReturn = latestTWRMetrics.twrAllTime;
+            break;
+          case "1M":
+          case "1Y":
+            // For 1M and 1Y, calculate from aggregated portfolio values
+            const rangeStartDate = new Date(startDate);
+            const rangeEndDate = new Date(endDate);
+            const rangeData = portfolioValues.filter((p) => {
+              const pDate = new Date(p.date);
+              return pDate >= rangeStartDate && pDate <= rangeEndDate;
+            });
+            if (rangeData.length >= 2) {
+              rangeTWRReturn = this.calculateTimeWeightedReturn(rangeData);
+            }
+            break;
+          default:
+            rangeTWRReturn = latestTWRMetrics.twrAllTime;
+        }
+      }
 
       res.status(200).json({
         benchmark: this.benchmarkSymbol,
@@ -309,33 +352,101 @@ class MetricsController {
         });
       }
 
-      // Try to use pre-calculated TWR field from latest record
-      const latest = portfolioData[portfolioData.length - 1];
+      // Aggregate portfolio data by date if "All Portfolios" is selected
+      let aggregatedPortfolioValues = null;
+      if (!accountId) {
+        const portfolioByDate = new Map();
+        portfolioData.forEach((record) => {
+          const dateKey = record.date.toISOString().split("T")[0];
+          const existing = portfolioByDate.get(dateKey) || {
+            date: dateKey,
+            equity: 0,
+            cashFlow: 0,
+          };
+          existing.equity += record.totalValue || 0;
+          existing.cashFlow += record.depositWithdrawal || 0;
+          portfolioByDate.set(dateKey, existing);
+        });
+
+        aggregatedPortfolioValues = Array.from(portfolioByDate.values())
+          .map((point) => ({
+            date: point.date,
+            equity: point.equity,
+            cashFlow: point.cashFlow,
+          }))
+          .sort((a, b) => new Date(a.date) - new Date(b.date));
+      }
+
+      // Calculate TWR return
       let twrReturn = null;
       const rangeUpper = range.toUpperCase();
-      switch (rangeUpper) {
-        case "3M":
-          twrReturn = latest.twr3Months;
-          break;
-        case "YTD":
-          twrReturn = latest.twrYearToDate;
-          break;
-        case "ALL":
-        case "ITD":
-        case "ALLTIME":
-          twrReturn = latest.twrAllTime;
-          break;
-        case "1M":
-        case "1Y":
-          // For 1M and 1Y, calculate from dailyTWRReturn
-          twrReturn = calculateTWRFromDailyReturns(
-            portfolioData,
-            startDate,
-            today
-          );
-          break;
-        default:
-          twrReturn = null;
+
+      if (
+        !accountId &&
+        aggregatedPortfolioValues &&
+        aggregatedPortfolioValues.length >= 2
+      ) {
+        // For "All Portfolios", calculate TWR from aggregated data
+        const twrMetrics = this.calculateTWRMetricsFromAggregatedData(
+          aggregatedPortfolioValues,
+          range
+        );
+
+        switch (rangeUpper) {
+          case "3M":
+            twrReturn = twrMetrics.twr3Months;
+            break;
+          case "YTD":
+            twrReturn = twrMetrics.twrYearToDate;
+            break;
+          case "ALL":
+          case "ITD":
+          case "ALLTIME":
+            twrReturn = twrMetrics.twrAllTime;
+            break;
+          case "1M":
+          case "1Y":
+            // For 1M and 1Y, calculate from aggregated portfolio values
+            const rangeStartDate = new Date(startDate);
+            const rangeEndDate = new Date(today);
+            const rangeData = aggregatedPortfolioValues.filter((p) => {
+              const pDate = new Date(p.date);
+              return pDate >= rangeStartDate && pDate <= rangeEndDate;
+            });
+            if (rangeData.length >= 2) {
+              twrReturn = this.calculateTimeWeightedReturn(rangeData);
+            }
+            break;
+          default:
+            twrReturn = twrMetrics.twrAllTime;
+        }
+      } else if (accountId) {
+        // For single account, use pre-calculated TWR from latest record
+        const latest = portfolioData[portfolioData.length - 1];
+        switch (rangeUpper) {
+          case "3M":
+            twrReturn = latest.twr3Months;
+            break;
+          case "YTD":
+            twrReturn = latest.twrYearToDate;
+            break;
+          case "ALL":
+          case "ITD":
+          case "ALLTIME":
+            twrReturn = latest.twrAllTime;
+            break;
+          case "1M":
+          case "1Y":
+            // For 1M and 1Y, calculate from dailyTWRReturn
+            twrReturn = calculateTWRFromDailyReturns(
+              portfolioData,
+              startDate,
+              today
+            );
+            break;
+          default:
+            twrReturn = null;
+        }
       }
 
       const returns = portfolioData
@@ -371,16 +482,42 @@ class MetricsController {
         this.riskFreeRate
       );
 
-      const firstValue = portfolioData[0].totalValue || 0;
-      const lastValue = portfolioData[portfolioData.length - 1].totalValue || 0;
-
       // Use pre-calculated TWR if available, otherwise fall back to point-to-point return
       let totalReturn;
       if (twrReturn !== null && twrReturn !== undefined && !isNaN(twrReturn)) {
         totalReturn = twrReturn;
       } else {
-        totalReturn =
-          firstValue > 0 ? (lastValue - firstValue) / firstValue : 0;
+        // For "All Portfolios", always use aggregated data (never raw portfolioData)
+        if (!accountId) {
+          if (
+            aggregatedPortfolioValues &&
+            aggregatedPortfolioValues.length >= 2
+          ) {
+            // Sufficient data: calculate return from aggregated values
+            const firstValue = aggregatedPortfolioValues[0].equity || 0;
+            const lastValue =
+              aggregatedPortfolioValues[aggregatedPortfolioValues.length - 1]
+                .equity || 0;
+            totalReturn =
+              firstValue > 0 ? (lastValue - firstValue) / firstValue : 0;
+          } else if (
+            aggregatedPortfolioValues &&
+            aggregatedPortfolioValues.length === 1
+          ) {
+            // Only one date: cannot calculate return, set to 0
+            totalReturn = 0;
+          } else {
+            // No aggregated data available: set to null
+            totalReturn = null;
+          }
+        } else {
+          // Single account: use raw portfolioData (this is correct for single account)
+          const firstValue = portfolioData[0].totalValue || 0;
+          const lastValue =
+            portfolioData[portfolioData.length - 1].totalValue || 0;
+          totalReturn =
+            firstValue > 0 ? (lastValue - firstValue) / firstValue : 0;
+        }
       }
 
       const days = (today - startDate) / (1000 * 60 * 60 * 24);
@@ -963,6 +1100,97 @@ class MetricsController {
     const startValue = timeSeries[0].equity;
     const endValue = timeSeries[timeSeries.length - 1].equity;
     return (endValue - startValue) / startValue;
+  }
+
+  /**
+   * Calculate TWR metrics from aggregated portfolio data
+   * Used when "All Portfolios" is selected to recalculate TWR from aggregated equity and cashFlow
+   *
+   * @param {Array} portfolioValues - Array of {date, equity, cashFlow} objects sorted by date
+   * @param {string} range - Time range (1M, 3M, YTD, 1Y, ALL)
+   * @returns {Object} TWR metrics object with twr1Day, twr3Months, twrYearToDate, twrAllTime
+   */
+  calculateTWRMetricsFromAggregatedData(portfolioValues, range) {
+    if (!portfolioValues || portfolioValues.length === 0) {
+      return {
+        twr1Day: null,
+        twr3Months: null,
+        twrYearToDate: null,
+        twrAllTime: null,
+      };
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayStr = today.toISOString().split("T")[0];
+
+    // Find the last data point (should be today or most recent)
+    const lastIndex = portfolioValues.length - 1;
+    const lastDateStr = portfolioValues[lastIndex]?.date;
+
+    // Calculate 1 Day TWR (from yesterday to today, if available)
+    let twr1Day = null;
+    if (portfolioValues.length >= 2) {
+      const yesterday = portfolioValues[lastIndex - 1];
+      const todayData = portfolioValues[lastIndex];
+      if (yesterday && todayData) {
+        const oneDaySeries = [yesterday, todayData];
+        twr1Day = this.calculateTimeWeightedReturn(oneDaySeries);
+      }
+    }
+
+    // Calculate 3 Months TWR
+    let twr3Months = null;
+    if (portfolioValues.length >= 2) {
+      const threeMonthsAgo = new Date(today);
+      threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+      const threeMonthsAgoStr = threeMonthsAgo.toISOString().split("T")[0];
+
+      const startIndex = portfolioValues.findIndex(
+        (p) => p.date >= threeMonthsAgoStr
+      );
+      if (startIndex !== -1 && startIndex < portfolioValues.length) {
+        const threeMonthSeries = portfolioValues.slice(startIndex);
+        if (threeMonthSeries.length >= 2) {
+          twr3Months = this.calculateTimeWeightedReturn(threeMonthSeries);
+        }
+      }
+    }
+
+    // Calculate Year to Date TWR
+    let twrYearToDate = null;
+    if (portfolioValues.length >= 2) {
+      const currentYear = today.getFullYear();
+      const yearStartStr = `${currentYear}-01-01`;
+
+      const startIndex = portfolioValues.findIndex(
+        (p) => p.date >= yearStartStr
+      );
+      if (startIndex !== -1 && startIndex < portfolioValues.length) {
+        const ytdSeries = portfolioValues.slice(startIndex);
+        if (ytdSeries.length >= 2) {
+          twrYearToDate = this.calculateTimeWeightedReturn(ytdSeries);
+        }
+      }
+    }
+
+    // Calculate All Time TWR
+    let twrAllTime = null;
+    if (portfolioValues.length >= 2) {
+      twrAllTime = this.calculateTimeWeightedReturn(portfolioValues);
+    }
+
+    return {
+      twr1Day: twr1Day !== null && isFinite(twr1Day) ? twr1Day : null,
+      twr3Months:
+        twr3Months !== null && isFinite(twr3Months) ? twr3Months : null,
+      twrYearToDate:
+        twrYearToDate !== null && isFinite(twrYearToDate)
+          ? twrYearToDate
+          : null,
+      twrAllTime:
+        twrAllTime !== null && isFinite(twrAllTime) ? twrAllTime : null,
+    };
   }
 
   /**

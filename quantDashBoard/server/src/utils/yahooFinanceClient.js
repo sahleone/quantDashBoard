@@ -164,11 +164,12 @@ async function retryWithBackoff(fn, maxRetries = 3, baseDelay = 1000) {
 
 /**
  * Fetch historical prices for a single symbol
+ * Uses adjusted close prices (adjClose) which account for stock splits and dividends.
  *
  * @param {string} symbol - Ticker symbol (e.g., "AAPL")
  * @param {Date} startDate - Start date (inclusive)
  * @param {Date} endDate - End date (inclusive)
- * @returns {Promise<Array>} Array of price objects with date, close, open, high, low, volume
+ * @returns {Promise<Array>} Array of price objects with date, close (adjusted), open, high, low, volume
  */
 export async function fetchHistoricalPrices(symbol, startDate, endDate) {
   await rateLimitDelay();
@@ -213,7 +214,7 @@ export async function fetchHistoricalPrices(symbol, startDate, endDate) {
             ) {
               return usdChart.quotes.map((row) => ({
                 date: new Date(row.date),
-                close: row.close || null,
+                close: row.adjClose || row.close || null,
                 open: row.open || null,
                 high: row.high || null,
                 low: row.low || null,
@@ -227,10 +228,10 @@ export async function fetchHistoricalPrices(symbol, startDate, endDate) {
         return [];
       }
 
-      // Transform to our format
+      // Transform to our format - use adjusted close prices
       return chart.quotes.map((row) => ({
         date: new Date(row.date),
-        close: row.close || null,
+        close: row.adjClose || row.close || null,
         open: row.open || null,
         high: row.high || null,
         low: row.low || null,
@@ -265,7 +266,7 @@ export async function fetchHistoricalPrices(symbol, startDate, endDate) {
             ) {
               return usdChart.quotes.map((row) => ({
                 date: new Date(row.date),
-                close: row.close || null,
+                close: row.adjClose || row.close || null,
                 open: row.open || null,
                 high: row.high || null,
                 low: row.low || null,

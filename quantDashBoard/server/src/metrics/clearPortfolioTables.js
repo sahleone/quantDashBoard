@@ -7,16 +7,30 @@
 
 import dotenv from "dotenv";
 import mongoose from "mongoose";
+import { fileURLToPath } from "url";
+import { dirname, join } from "path";
 import { runMetricsPipeline } from "./runMetricsPipeline.js";
 
-// Load .env file if it exists
-dotenv.config();
+// Get the directory of this file
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+// Load .env file from project root (two levels up from this file: src/metrics -> src -> server -> root)
+const envPath = join(__dirname, "../../../.env");
+dotenv.config({ path: envPath });
+
+// Fallback: also try loading from server directory
+if (!process.env.DATABASE_URL) {
+  dotenv.config({ path: join(__dirname, "../../.env") });
+}
 
 const databaseUrl =
   process.env.DATABASE_URL || "mongodb://localhost:27017/quantDashboard";
 
-// Collections to clear (portfolio-related, downstream from activities/positions/prices)
+// Collections to clear (price data and downstream collections)
+// Clearing pricehistories to force re-fetch with adjusted close prices
 const COLLECTIONS_TO_CLEAR = [
+  "pricehistories", // Price data (needs to be re-fetched with adjusted closes)
   "portfoliotimeseries", // Portfolio valuations (depends on activities, positions, prices)
   "snaptrademetrics", // Calculated metrics (depends on portfolio timeseries)
 ];
@@ -32,7 +46,7 @@ async function clearCollections() {
     console.log("Connected to MongoDB");
     const db = mongoose.connection.db;
 
-    console.log("\n=== Clearing Portfolio-Related Collections ===");
+    console.log("\n=== Clearing Price Data and Portfolio Collections ===");
     const errors = [];
 
     for (const collectionName of COLLECTIONS_TO_CLEAR) {

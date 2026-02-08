@@ -17,7 +17,8 @@ import mongoose from "mongoose";
  * - depositWithdrawal: Net external flow for this day (default: 0)
  * - externalFlowCumulative: Cumulative external flows (default: 0)
  * - simpleReturns: Flow-adjusted daily return (optional)
- * - dailyTWRReturn: Time-weighted daily return excluding external cash flows (optional)
+ * - dailyTWRReturn: Time-weighted daily log return excluding external cash flows (optional)
+ *   Note: This is a log return (ln(V_end/V_start)), not a simple return
  * - twr1Day: 1-day TWR return (same as dailyTWRReturn) (optional)
  * - twr3Months: Rolling 3-month TWR return (geometrically linked daily returns) (optional)
  * - twrYearToDate: Year-to-date TWR return (geometrically linked from Jan 1) (optional)

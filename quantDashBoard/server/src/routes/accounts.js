@@ -170,4 +170,73 @@ router.post("/refresh", async (req, res) => {
   }
 });
 
+/**
+ * Comprehensive Sync All User Data
+ * POST /api/accounts/sync/all
+ * Body: { userId?, fullSync?: boolean }
+ * Syncs accounts, holdings, positions, balances, activities, and options
+ */
+router.post("/sync/all", async (req, res) => {
+  const userId = req.body.userId || req.user?.userId;
+  const fullSync = !!req.body.fullSync;
+
+  if (!userId) return res.status(400).json({ error: "Missing userId" });
+
+  try {
+    const { default: syncAllUserData } = await import(
+      "../utils/syncAllUserData.js"
+    );
+
+    const result = await syncAllUserData(userId, null, { fullSync });
+
+    // Calculate accurate counts
+    const accountsCount = result.accounts?.length || 0;
+    
+    // Sum up actual holdings count from all account results
+    let holdingsCount = 0;
+    if (Array.isArray(result.holdings)) {
+      holdingsCount = result.holdings.reduce((sum, accountResult) => {
+        if (accountResult.status === "success" && accountResult.holdings) {
+          return sum + (accountResult.holdings.total || 0);
+        }
+        return sum;
+      }, 0);
+    }
+    
+    // Sum up actual options count from all account results
+    let optionsCount = 0;
+    if (Array.isArray(result.options)) {
+      optionsCount = result.options.reduce((sum, accountResult) => {
+        if (accountResult.status === "success" && accountResult.count) {
+          return sum + accountResult.count;
+        }
+        return sum;
+      }, 0);
+    }
+
+    return res.status(200).json({
+      message: "Comprehensive sync completed",
+      success: result.success,
+      accounts: accountsCount,
+      holdings: holdingsCount,
+      options: optionsCount,
+      accountsProcessed: result.holdings?.length || 0,
+      optionsAccountsProcessed: result.options?.length || 0,
+      details: result,
+    });
+  } catch (err) {
+    console.error(
+      `Error performing comprehensive sync for user ${userId}:`,
+      err?.message || err
+    );
+    return res.status(500).json({
+      error: {
+        code: "SYNC_ALL_FAILED",
+        message: "Failed to perform comprehensive sync",
+        details: err?.message || String(err),
+      },
+    });
+  }
+});
+
 export default router;

@@ -17,11 +17,11 @@
  */
 
 import mongoose from "mongoose";
-import AccountsList from "../../../models/AccountsList.js";
-import Activities from "../../../models/AccountActivities.js";
-import AccountServiceClientService from "../../../clients/accountClient.js";
+import AccountsList from "../../models/AccountsList.js";
+import Activities from "../../models/AccountActivities.js";
+import AccountServiceClientService from "../../clients/accountClient.js";
 import getLastActivityDate from "../helpers/helper.js";
-import Users from "../../../models/Users.js";
+import Users from "../../models/Users.js";
 
 /**
  * Update the AccountActivities collection from SnapTrade for all accounts.

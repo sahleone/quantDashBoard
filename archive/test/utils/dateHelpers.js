@@ -173,4 +173,3 @@ export function getPreviousFriday(dateStr) {
     return null;
   }
 }
-

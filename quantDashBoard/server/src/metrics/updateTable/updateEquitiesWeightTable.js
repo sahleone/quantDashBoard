@@ -7,8 +7,8 @@
  * This implements the positions timeseries logic from the Python activities.py script,
  * building a daily snapshot of holdings for each account.
  *
- * Accounts for corporate actions (stock splits) by loading them from the database
- * (stored in Step 3) and applying split factors to position units on split dates.
+ * Note: Uses adjusted close prices from Yahoo Finance, which automatically account
+ * for stock splits and dividends, eliminating the need to manually adjust position units.
  *
  * Options (opts):
  *  - databaseUrl: MongoDB connection string (falls back to env DATABASE_URL)
@@ -17,9 +17,7 @@
  */
 
 import mongoose from "mongoose";
-import EquitiesWeightTimeseries from "../../../models/EquitiesWeightTimeseries.js";
-import CorporateActions from "../../../models/CorporateActions.js";
-import { fetchStockSplits } from "../../../utils/yahooFinanceClient.js";
+import EquitiesWeightTimeseries from "../../models/EquitiesWeightTimeseries.js";
 
 /**
  * Extracts the position symbol from an activity record.
@@ -73,116 +71,12 @@ function signedUnits(activity) {
 }
 
 /**
- * Load corporate actions (stock splits) for symbols from database.
- * If not found in database, fetch from API and store for future use.
- * @param {Array<string>} symbols - Array of symbol strings
- * @param {Date} startDate - Start date for date range
- * @param {Date} endDate - End date for date range
- * @returns {Promise<Map<string, Array>>} - Map of symbol -> array of split objects {date, factor}
- */
-async function loadCorporateActions(symbols, startDate, endDate) {
-  const db = mongoose.connection.db;
-  const corporateActionsCollection = db.collection("corporateactions");
-
-  const splitsBySymbol = new Map();
-
-  for (const symbol of symbols) {
-    // Skip option tickers that contain spaces (they don't have splits)
-    if (symbol.includes(" ") && symbol.trim() !== symbol.replace(/\s+/g, "")) {
-      continue;
-    }
-
-    try {
-      // Try to load from database first
-      const corporateAction = await corporateActionsCollection.findOne({
-        symbol,
-      });
-
-      if (corporateAction && Array.isArray(corporateAction.splits)) {
-        // Corporate action record exists (even if splits array is empty)
-        // Filter splits to date range
-        const splitsInRange = corporateAction.splits
-          .filter((split) => {
-            const splitDate = new Date(split.date);
-            return splitDate >= startDate && splitDate <= endDate;
-          })
-          .map((split) => ({
-            date: new Date(split.date),
-            factor: split.factor || 1.0,
-          }));
-
-        if (splitsInRange.length > 0) {
-          splitsBySymbol.set(symbol, splitsInRange);
-        }
-        // If splitsInRange is empty, that's fine - it means no splits in this date range
-        // The record exists in DB, so we won't fetch from API again
-      } else {
-        // Not in database, fetch ALL historical splits from API and store
-        // IMPORTANT: Fetch all historical data, not just the current date range
-        // This ensures older positions added later will have correct split adjustments
-        console.log(
-          `  Fetching ALL historical splits for ${symbol} (not in database)...`
-        );
-        const allTimeStartDate = new Date("1970-01-01");
-        const allTimeEndDate = new Date();
-        const allSplits = await fetchStockSplits(
-          symbol,
-          allTimeStartDate,
-          allTimeEndDate
-        );
-
-        // Store ALL splits in database for future use
-        // IMPORTANT: Store the record even if splits.length === 0 to cache the fact
-        // that this symbol has no splits, preventing redundant API calls
-        await corporateActionsCollection.updateOne(
-          { symbol },
-          {
-            $set: {
-              symbol: symbol,
-              splits: allSplits, // Empty array if no splits
-              dividends: [], // Initialize empty dividends array
-              lastUpdated: new Date(),
-              source: "yahoo_finance",
-            },
-          },
-          { upsert: true }
-        );
-
-        // Filter splits to the date range needed for current positions
-        const splitsInRange = allSplits
-          .filter((split) => {
-            const splitDate = new Date(split.date);
-            return splitDate >= startDate && splitDate <= endDate;
-          })
-          .map((split) => ({
-            date: new Date(split.date),
-            factor: split.factor || 1.0,
-          }));
-
-        if (splitsInRange.length > 0) {
-          splitsBySymbol.set(symbol, splitsInRange);
-        }
-      }
-    } catch (error) {
-      console.warn(
-        `  Error loading corporate actions for ${symbol}:`,
-        error.message
-      );
-      // Continue with other symbols
-    }
-  }
-
-  return splitsBySymbol;
-}
-
-/**
  * Builds daily positions timeseries from activities by aggregating transactions
- * and rolling forward positions day by day, applying corporate actions (stock splits).
+ * and rolling forward positions day by day.
  * @param {Array} activities - Array of activity records
- * @param {Map<string, Array>} splitsBySymbol - Map of symbol -> array of split objects {date, factor}
  * @returns {Map<string, Map<string, number>>} - Map of date -> Map of symbol -> units
  */
-function buildDailyPositions(activities, splitsBySymbol = new Map()) {
+function buildDailyPositions(activities) {
   const POSITION_TYPES = new Set([
     "BUY",
     "SELL",
@@ -230,29 +124,16 @@ function buildDailyPositions(activities, splitsBySymbol = new Map()) {
     return new Map();
   }
 
-  // Collect all dates: transaction dates and split dates
+  // Collect all transaction dates
   const dates = Array.from(transactionsByDate.keys()).sort();
-  const splitDates = new Set();
-
-  // Collect all split dates
-  for (const [symbol, splits] of splitsBySymbol) {
-    for (const split of splits) {
-      const splitDateKey = split.date.toISOString().split("T")[0];
-      splitDates.add(splitDateKey);
-      dates.push(splitDateKey);
-    }
-  }
-
-  // Sort and deduplicate dates
-  const allDates = Array.from(new Set(dates)).sort();
-  if (allDates.length === 0) {
+  if (dates.length === 0) {
     return new Map();
   }
 
-  const minDate = new Date(allDates[0]);
-  const maxDate = new Date(allDates[allDates.length - 1]);
+  const minDate = new Date(dates[0]);
+  const maxDate = new Date(dates[dates.length - 1]);
 
-  // Build full calendar including split dates
+  // Build full calendar for date range
   const dateRange = [];
   const current = new Date(minDate);
   while (current <= maxDate) {
@@ -263,38 +144,10 @@ function buildDailyPositions(activities, splitsBySymbol = new Map()) {
   const positionsByDate = new Map();
   const currentPositions = new Map();
 
-  // Build a map of split dates by symbol for quick lookup
-  const splitsByDate = new Map();
-  for (const [symbol, splits] of splitsBySymbol) {
-    for (const split of splits) {
-      const splitDateKey = split.date.toISOString().split("T")[0];
-      if (!splitsByDate.has(splitDateKey)) {
-        splitsByDate.set(splitDateKey, new Map());
-      }
-      splitsByDate.get(splitDateKey).set(symbol, split.factor);
-    }
-  }
-
   for (const date of dateRange) {
     const dateKey = date.toISOString().split("T")[0];
 
-    // Apply corporate actions first (stock splits)
-    if (splitsByDate.has(dateKey)) {
-      const daySplits = splitsByDate.get(dateKey);
-      for (const [symbol, splitFactor] of daySplits) {
-        const currentUnits = currentPositions.get(symbol) || 0;
-        if (currentUnits !== 0) {
-          const newUnits = currentUnits * splitFactor;
-          if (Math.abs(newUnits) < 1e-3) {
-            currentPositions.delete(symbol);
-          } else {
-            currentPositions.set(symbol, newUnits);
-          }
-        }
-      }
-    }
-
-    // Then apply transactions
+    // Apply transactions
     if (transactionsByDate.has(dateKey)) {
       const dayTransactions = transactionsByDate.get(dateKey);
       for (const [symbol, deltaUnits] of dayTransactions) {
@@ -473,21 +326,8 @@ export async function updateEquitiesWeightTable(opts = {}) {
         maxDate = new Date();
       }
 
-      // Load corporate actions (stock splits) from database
-      console.log(
-        `  Loading corporate actions for ${symbols.length} symbols...`
-      );
-      const splitsBySymbol = await loadCorporateActions(
-        symbols,
-        minDate,
-        maxDate
-      );
-      if (splitsBySymbol.size > 0) {
-        console.log(`  Found splits for ${splitsBySymbol.size} symbols`);
-      }
-
-      // Build positions with corporate actions applied
-      const positionsByDate = buildDailyPositions(activities, splitsBySymbol);
+      // Build positions from activities
+      const positionsByDate = buildDailyPositions(activities);
 
       if (positionsByDate.size === 0) {
         console.log(`No position transactions found for account ${acctId}`);
