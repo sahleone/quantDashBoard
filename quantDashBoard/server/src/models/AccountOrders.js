@@ -171,6 +171,9 @@ const accountOrdersSchema = new mongoose.Schema(
 
 
 
+// Enforce uniqueness at the database level to prevent race-condition duplicates
+accountOrdersSchema.index({ accountId: 1, brokerage_order_id: 1 }, { unique: true });
+
 const AccountOrders = mongoose.model(
   "SnapTradeAccountOrders",
   accountOrdersSchema

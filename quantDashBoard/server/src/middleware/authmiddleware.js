@@ -69,9 +69,8 @@ const checkUser = (req, res, next) => {
   if (token) {
     jwt.verify(token, config.jwt.secret, async (err, decodedToken) => {
       if (err) {
-        res.status(401).json({ message: "Unauthorized" });
         res.locals.user = null;
-        next();
+        return res.status(401).json({ message: "Unauthorized" });
       } else {
         const user = await User.findById(decodedToken.id);
         res.locals.user = user;

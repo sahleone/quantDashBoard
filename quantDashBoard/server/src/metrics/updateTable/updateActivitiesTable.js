@@ -130,11 +130,13 @@ export async function updateAccountActivitiesTable(opts = {}) {
           }`
         );
 
+        // Fetch all activities with pagination (SDK handles paging internally)
+        const PAGE_SIZE = 1000;
         const rawActivities = await accountService.listAllAccountActivities(
           userId,
           userSecret,
           accountId,
-          1000, // SnapTrade max limit is 1000
+          PAGE_SIZE,
           startDate,
           null,
           activityTypes
@@ -144,6 +146,16 @@ export async function updateAccountActivitiesTable(opts = {}) {
           console.log(`No new activities for account ${accountId}`);
           summary.processed++;
           continue;
+        }
+
+        // Warn if exactly PAGE_SIZE activities returned — may indicate
+        // that the API returned the max per page and pagination didn't
+        // fetch subsequent pages (e.g. response format mismatch).
+        if (rawActivities.length === PAGE_SIZE) {
+          console.warn(
+            `\u26A0\uFE0F  Account ${accountId}: received exactly ${PAGE_SIZE} activities — ` +
+            `data may be truncated. Consider running a fullSync.`
+          );
         }
 
         const transformed = accountService.transformActivitiesForMongoDB(

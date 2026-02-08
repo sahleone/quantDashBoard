@@ -192,7 +192,7 @@ async function calculateStockValueFromUnits(units, date, db) {
     return { stockValue: 0, positions: [] };
   }
 
-  const symbols = Object.keys(units).filter((s) => units[s] > 0);
+  const symbols = Object.keys(units).filter((s) => units[s] !== 0);
 
   if (symbols.length === 0) {
     return { stockValue: 0, positions: [] };
@@ -244,7 +244,7 @@ async function calculateStockValueFromUnits(units, date, db) {
 
   for (const symbol of symbols) {
     const symbolUnits = units[symbol] || 0;
-    if (symbolUnits <= 0) continue;
+    if (symbolUnits === 0) continue;
 
     // Try original symbol first, then normalized crypto version
     let price = pricesBySymbol.get(symbol) || 0;
@@ -514,29 +514,31 @@ function calculateReturns(portfolioData) {
       curr.simpleReturns = (V_curr - base) / base;
     }
 
-    const endValueBeforeCF = V_curr - CF;
+    // TWR: assume cash flow occurs at start of period.
+    // Adjust the denominator only: V_prev + CF.
+    // Do NOT also subtract CF from the numerator — that double-counts.
     const startValueWithCF = V_prev + CF;
 
     if (Math.abs(startValueWithCF) < 1e-6) {
       curr.dailyTWRReturn = 0;
-    } else if (endValueBeforeCF <= 0) {
+    } else if (V_curr <= 0) {
       // Can't take log of zero or negative - this usually indicates missing prices
       // or data quality issues. Set to 0 (no return) rather than -10 to avoid
       // extreme negative sums that cause -100% returns
       curr.dailyTWRReturn = 0;
       // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/033a683d-b3d0-4415-8284-d7ee35a9e662',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'updatePortfolioTimeseries.js:520',message:'calculateReturns: endValueBeforeCF <= 0, setting log return to 0',data:{date:currDate,V_prev:V_prev,V_curr:V_curr,CF:CF,endValueBeforeCF:endValueBeforeCF,startValueWithCF:startValueWithCF},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+      fetch('http://127.0.0.1:7243/ingest/033a683d-b3d0-4415-8284-d7ee35a9e662',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'updatePortfolioTimeseries.js:520',message:'calculateReturns: endValueBeforeCF <= 0, setting log return to 0',data:{date:currDate,V_prev:V_prev,V_curr:V_curr,CF:CF,V_curr:V_curr,startValueWithCF:startValueWithCF},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
       // #endregion
     } else {
-      // Calculate log return: ln(V_end / V_start)
-      const ratio = endValueBeforeCF / startValueWithCF;
+      // Calculate log return: ln(V_curr / (V_prev + CF))
+      const ratio = V_curr / startValueWithCF;
       // Clamp ratio to prevent log(0) or extreme values
       const clampedRatio = Math.max(ratio, 1e-10);
       const logReturn = Math.log(clampedRatio);
 
       // #region agent log
       if (!isFinite(logReturn) || Math.abs(logReturn) > 10) {
-        fetch('http://127.0.0.1:7243/ingest/033a683d-b3d0-4415-8284-d7ee35a9e662',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'updatePortfolioTimeseries.js:530',message:'calculateReturns: extreme log return detected',data:{date:currDate,V_prev:V_prev,V_curr:V_curr,CF:CF,endValueBeforeCF:endValueBeforeCF,startValueWithCF:startValueWithCF,ratio:ratio,clampedRatio:clampedRatio,logReturn:logReturn},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+        fetch('http://127.0.0.1:7243/ingest/033a683d-b3d0-4415-8284-d7ee35a9e662',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'updatePortfolioTimeseries.js:530',message:'calculateReturns: extreme log return detected',data:{date:currDate,V_prev:V_prev,V_curr:V_curr,CF:CF,V_curr:V_curr,startValueWithCF:startValueWithCF,ratio:ratio,clampedRatio:clampedRatio,logReturn:logReturn},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
       }
       // #endregion
 
@@ -947,8 +949,9 @@ export async function updatePortfolioTimeseries(opts = {}) {
             .toArray();
 
           if (lastEntry.length > 0) {
+            // Include the last existing day so its totalValue seeds V_prev
+            // for the first new day's return calculation (avoids V_prev = 0)
             startDate = new Date(lastEntry[0].date);
-            startDate.setDate(startDate.getDate() + 1);
             // Ensure startDate is not before earliest activity
             if (startDate < earliestActivityDate) {
               startDate = earliestActivityDate;

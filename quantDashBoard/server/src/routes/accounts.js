@@ -93,8 +93,8 @@ router.post("/sync/holdings", (req, res) => {
  * Body: { userId, userSecret, fullSync? }
  */
 router.post("/sync/holdings/connections", async (req, res) => {
-  const userId = req.body.userId || req.user?.userId;
-  const userSecret = req.body.userSecret || req.user?.userSecret || null;
+  const userId = req.user?.userId;
+  const userSecret = req.user?.userSecret || null;
   const fullSync = !!req.body.fullSync;
 
   if (!userId) return res.status(400).json({ error: "Missing userId" });
@@ -138,8 +138,8 @@ router.get("/positions/:symbol", (req, res) => {
  * Refresh Account Data from SnapTrade
  */
 router.post("/refresh", async (req, res) => {
-  const userId = req.body.userId || req.user?.userId;
-  const userSecret = req.body.userSecret || req.user?.userSecret;
+  const userId = req.user?.userId;
+  const userSecret = req.user?.userSecret;
 
   if (!userId) return res.status(400).json({ error: "Missing userId" });
   if (!userSecret)
@@ -177,7 +177,7 @@ router.post("/refresh", async (req, res) => {
  * Syncs accounts, holdings, positions, balances, activities, and options
  */
 router.post("/sync/all", async (req, res) => {
-  const userId = req.body.userId || req.user?.userId;
+  const userId = req.user?.userId;
   const fullSync = !!req.body.fullSync;
 
   if (!userId) return res.status(400).json({ error: "Missing userId" });

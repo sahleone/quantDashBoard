@@ -120,7 +120,7 @@ export async function batchUpsertWithDuplicateCheck(
         bulkOps.push({
           updateOne: {
             filter: query,
-            update: record,
+            update: { $set: record },
             upsert: true,
           },
         });

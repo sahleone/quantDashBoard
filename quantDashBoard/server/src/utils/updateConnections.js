@@ -25,7 +25,7 @@ export default async function updateConnectionsForUser(
   let effectiveSecret = userSecret || null;
 
   if (!effectiveSecret) {
-    user = await User.findOne({ userId }).lean();
+    user = await User.findOne({ userId });
     if (!user) {
       throw new Error(`User not found for userId=${userId}`);
     }
@@ -37,9 +37,7 @@ export default async function updateConnectionsForUser(
     effectiveSecret = user.userSecret;
   } else {
     // try to load user for metadata but don't require it
-    user = await User.findOne({ userId })
-      .lean()
-      .catch(() => null);
+    user = await User.findOne({ userId }).catch(() => null);
   }
 
   const connectionService = new ConnectionServiceClientService();

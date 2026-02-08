@@ -33,21 +33,36 @@ function getPeriodDateRange(period, asOfDate) {
   const endDate = new Date(asOfDate);
   endDate.setHours(23, 59, 59, 999);
 
-  const startDate = new Date(endDate);
+  // Use UTC-based arithmetic to avoid setMonth overflow.
+  // e.g. March 31 minus 1 month should give Feb 28, not March 3.
+  const endYear = endDate.getFullYear();
+  const endMonth = endDate.getMonth();
+  const endDay = endDate.getDate();
+
+  let startDate;
 
   switch (period) {
-    case "1M":
-      startDate.setMonth(startDate.getMonth() - 1);
+    case "1M": {
+      let targetMonth = endMonth - 1;
+      let targetYear = endYear;
+      if (targetMonth < 0) { targetMonth += 12; targetYear -= 1; }
+      const lastDay = new Date(targetYear, targetMonth + 1, 0).getDate();
+      startDate = new Date(targetYear, targetMonth, Math.min(endDay, lastDay));
       break;
-    case "3M":
-      startDate.setMonth(startDate.getMonth() - 3);
+    }
+    case "3M": {
+      let targetMonth = endMonth - 3;
+      let targetYear = endYear;
+      while (targetMonth < 0) { targetMonth += 12; targetYear -= 1; }
+      const lastDay = new Date(targetYear, targetMonth + 1, 0).getDate();
+      startDate = new Date(targetYear, targetMonth, Math.min(endDay, lastDay));
       break;
+    }
     case "YTD":
-      startDate.setMonth(0);
-      startDate.setDate(1);
+      startDate = new Date(endYear, 0, 1);
       break;
     case "1Y":
-      startDate.setFullYear(startDate.getFullYear() - 1);
+      startDate = new Date(endYear - 1, endMonth, Math.min(endDay, new Date(endYear - 1, endMonth + 1, 0).getDate()));
       break;
     case "ALL":
       return { startDate: null, endDate };
@@ -66,7 +81,15 @@ function getPeriodDateRange(period, asOfDate) {
  * @param {Object} db - MongoDB database connection
  * @returns {Array<number>|null} - Array of daily returns or null if insufficient data
  */
-async function fetchBenchmarkReturns(startDate, endDate, db) {
+/**
+ * Fetches SPY benchmark returns aligned to portfolio dates for beta calculation
+ * @param {Date} startDate - Start date for benchmark data
+ * @param {Date} endDate - End date for benchmark data
+ * @param {Object} db - MongoDB database connection
+ * @param {Array} portfolioDates - Array of date strings (YYYY-MM-DD) from portfolio returns
+ * @returns {Array<number>|null} - Array of daily returns aligned to portfolio dates, or null if insufficient data
+ */
+async function fetchBenchmarkReturns(startDate, endDate, db, portfolioDates = null) {
   const priceHistoryCollection = db.collection("pricehistories");
 
   const prices = await priceHistoryCollection
@@ -81,16 +104,30 @@ async function fetchBenchmarkReturns(startDate, endDate, db) {
     return null;
   }
 
-  const returns = [];
+  // Build a map of date -> daily return for the benchmark
+  const benchmarkReturnsByDate = new Map();
   for (let i = 1; i < prices.length; i++) {
     const prevPrice = prices[i - 1].close;
     const currPrice = prices[i].close;
     if (prevPrice > 0) {
-      returns.push((currPrice - prevPrice) / prevPrice);
+      const dateStr = new Date(prices[i].date).toISOString().split("T")[0];
+      benchmarkReturnsByDate.set(dateStr, (currPrice - prevPrice) / prevPrice);
     }
   }
 
-  return returns;
+  // If portfolio dates are provided, align benchmark returns to those dates
+  if (portfolioDates && portfolioDates.length > 0) {
+    const alignedReturns = [];
+    for (const dateStr of portfolioDates) {
+      if (benchmarkReturnsByDate.has(dateStr)) {
+        alignedReturns.push(benchmarkReturnsByDate.get(dateStr));
+      }
+    }
+    return alignedReturns.length >= 2 ? alignedReturns : null;
+  }
+
+  // Fallback: return all returns
+  return Array.from(benchmarkReturnsByDate.values());
 }
 
 /**
@@ -234,9 +271,20 @@ async function calculatePeriodMetrics(accountId, userId, period, asOfDate, db) {
     // #endregion
   }
 
+  // Derive CAGR from TWR to avoid conflating external cash flows with returns.
+  // CAGR = (1 + TWR)^(1/years) - 1
   const days = Math.ceil((endDate - actualStartDate) / (1000 * 60 * 60 * 24));
   const years = days / 365.25;
-  metrics.cagr = returnsMetrics.calculateCAGR(startValue, endValue, years);
+  if (metrics.totalReturn !== null && metrics.totalReturn !== undefined && years > 0) {
+    const totalReturnFactor = 1 + metrics.totalReturn;
+    if (totalReturnFactor > 0) {
+      metrics.cagr = Math.pow(totalReturnFactor, 1 / years) - 1;
+    } else {
+      metrics.cagr = -1; // Total loss
+    }
+  } else {
+    metrics.cagr = 0;
+  }
 
   metrics.volatility = riskMetrics.calculateVolatility(returns, true);
   metrics.maxDrawdown = riskMetrics.calculateMaxDrawdown(equityIndex);
@@ -244,13 +292,29 @@ async function calculatePeriodMetrics(accountId, userId, period, asOfDate, db) {
   metrics.cvar95 = riskMetrics.calculateCVaR(returns, metrics.var95);
 
   try {
+    // Build portfolio date strings for alignment (skip first day which has no return)
+    const portfolioDates = portfolioData.slice(1)
+      .filter((pt) => pt.simpleReturns !== null && pt.simpleReturns !== undefined)
+      .map((pt) => new Date(pt.date).toISOString().split("T")[0]);
+
+    // Align benchmark returns to the same dates as portfolio returns
     const benchmarkReturns = await fetchBenchmarkReturns(
       actualStartDate,
       endDate,
-      db
+      db,
+      portfolioDates
     );
-    if (benchmarkReturns && benchmarkReturns.length === returns.length) {
-      metrics.beta = riskMetrics.calculateBeta(returns, benchmarkReturns);
+
+    if (benchmarkReturns) {
+      // Filter portfolio returns to only dates where we have benchmark data
+      const benchmarkDateSet = new Set(portfolioDates.filter((_, i) => i < (benchmarkReturns?.length || 0)));
+      // Both arrays are now aligned to the same dates
+      const alignedPortfolioReturns = returns.slice(0, benchmarkReturns.length);
+      if (alignedPortfolioReturns.length === benchmarkReturns.length && alignedPortfolioReturns.length >= 2) {
+        metrics.beta = riskMetrics.calculateBeta(alignedPortfolioReturns, benchmarkReturns);
+      } else {
+        metrics.beta = null;
+      }
     } else {
       metrics.beta = null;
     }
