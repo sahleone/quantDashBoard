@@ -13,6 +13,7 @@ import UserContext from "./context/UserContext";
 
 // utils
 import { setupAuthInterceptors } from "./utils/authInterceptor";
+import { authenticatedGet } from "./utils/apiClient";
 
 // pages
 import Dashboard from "./pages/Dashboard";
@@ -67,9 +68,7 @@ function App() {
       try {
         // We'll ask the API for the current user using credentials (cookies).
         // We no longer rely on any token in localStorage.
-        const response = await axios.get("http://localhost:3000/api/user/me", {
-          withCredentials: true,
-        });
+        const response = await authenticatedGet("/api/user/me");
 
         // Expect the server to return either { user: { ... } } or user fields at top
         const dataUser = response?.data?.user ?? response?.data ?? null;
