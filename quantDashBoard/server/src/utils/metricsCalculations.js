@@ -190,15 +190,23 @@ function sortinoRatio(returns, riskFreeRate = 0.0, periodsPerYear = null) {
   }
   const excess = returns.map((ret) => ret - riskFreeRate);
   const meanExcess = expectedReturn(excess);
-  const downsideReturns = excess.filter((ret) => ret < 0);
-  if (downsideReturns.length === 0) {
+
+  // Standard Sortino semi-deviation: sqrt(mean of squared deviations below target)
+  // Target = 0 (since we've already subtracted the risk-free rate)
+  // Include ALL observations; above-target returns contribute 0
+  const squaredDownside = excess.map((ret) => (ret < 0 ? ret * ret : 0));
+  const sumSquaredDownside = squaredDownside.reduce((sum, d) => sum + d, 0);
+
+  if (sumSquaredDownside === 0) {
     if (meanExcess > 0) {
       return Infinity;
     } else {
-      throw new Error("no negative returns and mean excess return is non-positive");
+      throw new Error("no downside deviation and mean excess return is non-positive");
     }
   }
-  const downsideDeviation = volatility(downsideReturns, 1);
+
+  // Use (n-1) for sample semi-variance
+  const downsideDeviation = Math.sqrt(sumSquaredDownside / (returns.length - 1));
   if (downsideDeviation === 0) {
     throw new Error("downside deviation is zero, cannot compute Sortino Ratio");
   }

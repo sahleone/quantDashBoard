@@ -30,11 +30,14 @@ import {
 } from "../../utils/yahooFinanceClient.js";
 
 /**
- * Get all unique symbols from EquitiesWeightTimeseries
+ * Get all unique symbols from both EquitiesWeightTimeseries AND AccountActivities
+ * This ensures prices are fetched for all symbols that appear in either source,
+ * preventing missing price data when portfolio calculations use activities.
  */
 async function getUniqueSymbols(opts = {}) {
   const db = mongoose.connection.db;
   const timeseriesCollection = db.collection("equitiesweighttimeseries");
+  const activitiesCollection = db.collection("snaptradeaccountactivities");
 
   const query = {};
   if (opts.userId) {
@@ -44,36 +47,68 @@ async function getUniqueSymbols(opts = {}) {
     query.accountId = opts.accountId;
   }
 
-  const symbols = await timeseriesCollection.distinct("symbol", query);
-  return symbols.filter((s) => s && s.trim().length > 0);
+  // Get symbols from both sources to ensure alignment
+  const [timeseriesSymbols, activitySymbols] = await Promise.all([
+    timeseriesCollection.distinct("symbol", query),
+    activitiesCollection.distinct("symbol", {
+      ...query,
+      type: { $in: ["BUY", "SELL", "REI", "OPTIONASSIGNMENT", "OPTIONEXERCISE", "OPTIONEXPIRATION"] },
+    }),
+  ]);
+
+  // Merge and deduplicate
+  const allSymbols = new Set([...timeseriesSymbols, ...activitySymbols]);
+  return Array.from(allSymbols).filter((s) => s && s.trim().length > 0);
 }
 
 /**
- * Get date range needed for a symbol
+ * Get date range needed for a symbol.
+ * Checks both EquitiesWeightTimeseries and AccountActivities to find the
+ * earliest date a symbol appears, ensuring we fetch prices for the full range.
  */
 async function getSymbolDateRange(symbol, opts = {}) {
   const db = mongoose.connection.db;
   const timeseriesCollection = db.collection("equitiesweighttimeseries");
+  const activitiesCollection = db.collection("snaptradeaccountactivities");
 
   const query = { symbol };
+  const actQuery = { symbol };
   if (opts.userId) {
     query.userId = opts.userId;
+    actQuery.userId = opts.userId;
   }
   if (opts.accountId) {
     query.accountId = opts.accountId;
+    actQuery.accountId = opts.accountId;
   }
 
-  const dates = await timeseriesCollection
-    .find(query, { projection: { date: 1 } })
-    .sort({ date: 1 })
-    .toArray();
+  // Check both sources for date ranges
+  const [timeseriesDates, activityDates] = await Promise.all([
+    timeseriesCollection
+      .find(query, { projection: { date: 1 } })
+      .sort({ date: 1 })
+      .toArray(),
+    activitiesCollection
+      .find(actQuery, { projection: { trade_date: 1, date: 1 } })
+      .sort({ trade_date: 1 })
+      .toArray(),
+  ]);
 
-  if (dates.length === 0) {
+  const allDates = [];
+  for (const d of timeseriesDates) {
+    if (d.date) allDates.push(new Date(d.date));
+  }
+  for (const d of activityDates) {
+    const dateVal = d.trade_date || d.date;
+    if (dateVal) allDates.push(new Date(dateVal));
+  }
+
+  if (allDates.length === 0) {
     return null;
   }
 
-  const minDate = new Date(dates[0].date);
-  const maxDate = new Date(dates[dates.length - 1].date);
+  allDates.sort((a, b) => a - b);
+  const minDate = allDates[0];
 
   const endDate = new Date();
   endDate.setHours(23, 59, 59, 999);

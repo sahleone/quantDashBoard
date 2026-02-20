@@ -54,12 +54,20 @@ export async function runMetricsPipeline(opts = {}) {
     errors: [],
   };
 
+  // Track whether critical steps succeeded for downstream dependency checks
+  let priceStepOk = true;
+  let valuationStepOk = true;
+
   // Step 1: Price Data and Corporate Actions
   if (steps.includes("price")) {
     try {
       console.log("Step 1: Price Data and Corporate Actions...");
       if (!dryRun) {
         results.price = await updatePriceData(commonOpts);
+        // Check if there were price fetch errors
+        if (results.price?.errors?.length > 0) {
+          console.warn(`  ⚠ Price data completed with ${results.price.errors.length} error(s)`);
+        }
         console.log(`  ✓ Price data and corporate actions completed`);
       } else {
         console.log(
@@ -75,49 +83,70 @@ export async function runMetricsPipeline(opts = {}) {
         step: "price",
         error: error?.message || String(error),
       });
+      priceStepOk = false;
     }
   }
 
   // Step 2-3: Portfolio Valuation and Returns (combined in updatePortfolioTimeseries)
+  // Depends on price data — skip if price step failed entirely
   if (steps.includes("valuation") || steps.includes("returns")) {
-    try {
-      console.log("Step 2-3: Portfolio Valuation and Returns...");
-      if (!dryRun) {
-        results.valuation = await updatePortfolioTimeseries(commonOpts);
-        results.returns = results.valuation; // Returns are calculated in the same step
-        console.log(`  ✓ Portfolio valuation and returns completed`);
-      } else {
-        console.log("  [DRY RUN] Would run updatePortfolioTimeseries");
-      }
-    } catch (error) {
-      console.error("  ✗ Portfolio valuation failed:", error?.message || error);
+    if (!priceStepOk && steps.includes("price")) {
+      console.error("  ✗ Skipping portfolio valuation — price data step failed");
       results.errors.push({
         step: "valuation",
-        error: error?.message || String(error),
+        error: "Skipped: price data step failed",
       });
+      valuationStepOk = false;
+    } else {
+      try {
+        console.log("Step 2-3: Portfolio Valuation and Returns...");
+        if (!dryRun) {
+          results.valuation = await updatePortfolioTimeseries(commonOpts);
+          results.returns = results.valuation; // Returns are calculated in the same step
+          console.log(`  ✓ Portfolio valuation and returns completed`);
+        } else {
+          console.log("  [DRY RUN] Would run updatePortfolioTimeseries");
+        }
+      } catch (error) {
+        console.error("  ✗ Portfolio valuation failed:", error?.message || error);
+        results.errors.push({
+          step: "valuation",
+          error: error?.message || String(error),
+        });
+        valuationStepOk = false;
+      }
     }
   }
 
   // Step 4: Metrics Calculation
+  // Depends on portfolio valuation — skip if valuation step failed
   if (steps.includes("metrics")) {
-    try {
-      console.log("Step 4: Metrics Calculation...");
-      if (!dryRun) {
-        results.metrics = await calculateMetrics(commonOpts);
-        console.log(`  ✓ Metrics calculation completed`);
-      } else {
-        console.log("  [DRY RUN] Would run calculateMetrics");
-      }
-    } catch (error) {
-      console.error("  ✗ Metrics calculation failed:", error?.message || error);
+    if (!valuationStepOk && (steps.includes("valuation") || steps.includes("returns"))) {
+      console.error("  ✗ Skipping metrics calculation — portfolio valuation step failed");
       results.errors.push({
         step: "metrics",
-        error: error?.message || String(error),
+        error: "Skipped: portfolio valuation step failed",
       });
+    } else {
+      try {
+        console.log("Step 4: Metrics Calculation...");
+        if (!dryRun) {
+          results.metrics = await calculateMetrics(commonOpts);
+          console.log(`  ✓ Metrics calculation completed`);
+        } else {
+          console.log("  [DRY RUN] Would run calculateMetrics");
+        }
+      } catch (error) {
+        console.error("  ✗ Metrics calculation failed:", error?.message || error);
+        results.errors.push({
+          step: "metrics",
+          error: error?.message || String(error),
+        });
+      }
     }
   }
 
-  // Step 5: Validation
+  // Step 5: Validation — always runs (it reports on data quality regardless)
   if (steps.includes("validate")) {
     try {
       console.log("Step 5: Validation...");

@@ -99,7 +99,8 @@ export function calculateBeta(portfolioReturns, benchmarkReturns) {
 /**
  * Calculates Maximum Drawdown from equity index
  * @param {Array<number>} equityIndex - Array of equity index values
- * @returns {number} - Maximum drawdown as a positive decimal
+ * @returns {number} - Maximum drawdown as a negative decimal (e.g., -0.15 = -15%)
+ *                      Convention: negative value indicates loss from peak
  */
 export function calculateMaxDrawdown(equityIndex) {
   if (!equityIndex || equityIndex.length === 0) {
@@ -122,14 +123,15 @@ export function calculateMaxDrawdown(equityIndex) {
     if (value > peak) {
       peak = value;
     } else {
-      const drawdown = (value - peak) / peak;
+      const drawdown = (value - peak) / peak; // Negative value
       if (drawdown < maxDD) {
         maxDD = drawdown;
       }
     }
   }
 
-  return Math.abs(maxDD);
+  // Return as negative (finance convention: drawdown is a loss)
+  return maxDD;
 }
 
 /**
@@ -192,7 +194,10 @@ export function calculateVaRParametric(returns, confidence = 0.95) {
   };
   const z = zScores[confidence] || 1.645;
 
-  return -(mean + z * std);
+  // VaR = -(mean - z * std)
+  // The 5th percentile of returns (left tail) = mean - z * std
+  // Negate to express as a positive loss value
+  return -(mean - z * std);
 }
 
 /**

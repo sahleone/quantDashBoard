@@ -47,6 +47,10 @@ export default async function fullSyncForUser(userId, userSecret = null, options
   } catch (err) {
     console.error(`[${userId}] Source data sync failed:`, err.message);
     result.errors.push({ step: "sync", error: err.message });
+    // CRITICAL: Do not run metrics pipeline with stale/missing source data
+    console.error(`[${userId}] Aborting pipeline — source data sync failed, metrics would use stale data`);
+    result.success = false;
+    return result;
   }
 
   // Step 2: Run metrics pipeline (prices -> timeseries -> metrics -> validate)
@@ -60,12 +64,18 @@ export default async function fullSyncForUser(userId, userSecret = null, options
     };
     result.metrics = await runMetricsPipeline(pipelineOpts);
     console.log(`[${userId}] Metrics pipeline completed`);
+
+    // Check if metrics pipeline had critical errors
+    if (result.metrics?.errors?.length > 0) {
+      console.warn(`[${userId}] Metrics pipeline completed with ${result.metrics.errors.length} error(s)`);
+      result.errors.push(...result.metrics.errors.map(e => ({ step: "metrics-sub", ...e })));
+    }
   } catch (err) {
     console.error(`[${userId}] Metrics pipeline failed:`, err.message);
     result.errors.push({ step: "metrics", error: err.message });
   }
 
-  result.success = result.sync !== null || result.metrics !== null;
+  result.success = result.errors.length === 0;
 
   return result;
 }

@@ -224,6 +224,13 @@ class MetricsController {
         }
       }
 
+      // Determine data freshness — find the most recent data point date
+      const lastDataDate = portfolioValues.length > 0
+        ? portfolioValues[portfolioValues.length - 1].date
+        : null;
+      const todayStr = new Date().toISOString().split("T")[0];
+      const isStale = lastDataDate && lastDataDate < todayStr;
+
       res.status(200).json({
         benchmark: this.benchmarkSymbol,
         range: range,
@@ -238,6 +245,13 @@ class MetricsController {
           dataPoints: portfolioValues.length,
         },
         twrMetrics: latestTWRMetrics || null,
+        dataFreshness: {
+          lastDataDate,
+          isStale,
+          staleMessage: isStale
+            ? `Data is from ${lastDataDate}. Click "Update All Data" to refresh.`
+            : null,
+        },
       });
     } catch (error) {
       console.error("Error getting portfolio value:", error);
@@ -290,8 +304,9 @@ class MetricsController {
         }`
       );
 
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
+      const now = new Date();
+      const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+      today.setUTCHours(0, 0, 0, 0);
 
       let metricsDoc = null;
       if (accountId) {
@@ -622,8 +637,9 @@ class MetricsController {
         }`
       );
 
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
+      const now = new Date();
+      const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+      today.setUTCHours(0, 0, 0, 0);
 
       let metricsDoc = null;
       if (accountId) {
