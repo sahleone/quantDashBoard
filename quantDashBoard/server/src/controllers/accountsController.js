@@ -490,8 +490,8 @@ class AccountsController {
         `Getting positions for user: ${userId}, account: ${accountId}`
       );
 
-      // Build query
-      const query = { userId };
+      // Build query — only return current (open) positions with units > 0
+      const query = { userId, units: { $gt: 0 } };
       if (accountId) query.accountId = accountId;
       if (asOf) {
         const asOfDate = new Date(asOf);

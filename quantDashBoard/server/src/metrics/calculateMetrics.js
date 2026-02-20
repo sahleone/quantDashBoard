@@ -31,13 +31,13 @@ import * as diversificationMetrics from "./helpers/diversificationMetrics.js";
  */
 function getPeriodDateRange(period, asOfDate) {
   const endDate = new Date(asOfDate);
-  endDate.setHours(23, 59, 59, 999);
+  endDate.setUTCHours(23, 59, 59, 999);
 
-  // Use UTC-based arithmetic to avoid setMonth overflow.
+  // Use UTC-based arithmetic to avoid setMonth overflow and timezone issues.
   // e.g. March 31 minus 1 month should give Feb 28, not March 3.
-  const endYear = endDate.getFullYear();
-  const endMonth = endDate.getMonth();
-  const endDay = endDate.getDate();
+  const endYear = endDate.getUTCFullYear();
+  const endMonth = endDate.getUTCMonth();
+  const endDay = endDate.getUTCDate();
 
   let startDate;
 
@@ -46,31 +46,33 @@ function getPeriodDateRange(period, asOfDate) {
       let targetMonth = endMonth - 1;
       let targetYear = endYear;
       if (targetMonth < 0) { targetMonth += 12; targetYear -= 1; }
-      const lastDay = new Date(targetYear, targetMonth + 1, 0).getDate();
-      startDate = new Date(targetYear, targetMonth, Math.min(endDay, lastDay));
+      const lastDay = new Date(Date.UTC(targetYear, targetMonth + 1, 0)).getUTCDate();
+      startDate = new Date(Date.UTC(targetYear, targetMonth, Math.min(endDay, lastDay)));
       break;
     }
     case "3M": {
       let targetMonth = endMonth - 3;
       let targetYear = endYear;
       while (targetMonth < 0) { targetMonth += 12; targetYear -= 1; }
-      const lastDay = new Date(targetYear, targetMonth + 1, 0).getDate();
-      startDate = new Date(targetYear, targetMonth, Math.min(endDay, lastDay));
+      const lastDay = new Date(Date.UTC(targetYear, targetMonth + 1, 0)).getUTCDate();
+      startDate = new Date(Date.UTC(targetYear, targetMonth, Math.min(endDay, lastDay)));
       break;
     }
     case "YTD":
-      startDate = new Date(endYear, 0, 1);
+      startDate = new Date(Date.UTC(endYear, 0, 1));
       break;
-    case "1Y":
-      startDate = new Date(endYear - 1, endMonth, Math.min(endDay, new Date(endYear - 1, endMonth + 1, 0).getDate()));
+    case "1Y": {
+      const lastDay = new Date(Date.UTC(endYear - 1, endMonth + 1, 0)).getUTCDate();
+      startDate = new Date(Date.UTC(endYear - 1, endMonth, Math.min(endDay, lastDay)));
       break;
+    }
     case "ALL":
       return { startDate: null, endDate };
     default:
       throw new Error(`Unknown period: ${period}`);
   }
 
-  startDate.setHours(0, 0, 0, 0);
+  startDate.setUTCHours(0, 0, 0, 0);
   return { startDate, endDate };
 }
 
@@ -381,8 +383,12 @@ export async function calculateMetrics(opts = {}) {
     console.log(`Processing ${accounts.length} account(s)`);
 
     const periods = ["1M", "3M", "YTD", "1Y", "ALL"];
-    const asOfDate = new Date();
-    asOfDate.setHours(23, 59, 59, 999);
+    // Use UTC to avoid timezone-related off-by-one errors
+    const now = new Date();
+    const asOfDate = new Date(Date.UTC(
+      now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(),
+      23, 59, 59, 999
+    ));
 
     for (const acctId of accounts) {
       try {
@@ -401,6 +407,25 @@ export async function calculateMetrics(opts = {}) {
         }
 
         console.log(`Processing account ${acctId} (user ${acctUserId})...`);
+
+        // Data freshness check: verify portfolio data is reasonably recent
+        const latestPortfolio = await portfolioCollection
+          .find({ accountId: acctId })
+          .sort({ date: -1 })
+          .limit(1)
+          .toArray();
+
+        if (latestPortfolio.length > 0) {
+          const latestDate = new Date(latestPortfolio[0].date);
+          const daysSinceUpdate = Math.floor((asOfDate - latestDate) / (1000 * 60 * 60 * 24));
+          if (daysSinceUpdate > 3) {
+            console.warn(
+              `⚠️  Account ${acctId}: Portfolio data is ${daysSinceUpdate} days old ` +
+              `(last entry: ${latestDate.toISOString().split("T")[0]}). ` +
+              `Metrics may be stale. Run full sync to update.`
+            );
+          }
+        }
 
         for (const period of periods) {
           try {

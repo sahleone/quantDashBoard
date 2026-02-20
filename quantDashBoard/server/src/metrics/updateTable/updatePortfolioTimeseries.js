@@ -455,9 +455,13 @@ function calculateReturns(portfolioData) {
       curr.dailyTWRReturn = 0;
     } else if (V_curr <= 0) {
       // Can't take log of zero or negative - this usually indicates missing prices
-      // or data quality issues. Set to 0 (no return) rather than -10 to avoid
-      // extreme negative sums that cause -100% returns
+      // or data quality issues. Log this so it's visible in diagnostics.
+      console.warn(
+        `⚠️  TWR: V_curr <= 0 on ${currDate} (V_curr=${V_curr.toFixed(2)}, V_prev=${V_prev.toFixed(2)}, CF=${CF.toFixed(2)}). ` +
+        `Likely missing prices. Setting dailyTWRReturn = 0.`
+      );
       curr.dailyTWRReturn = 0;
+      curr._twrDataQualityIssue = true;
     } else {
       // Calculate log return: ln(V_curr / (V_prev + CF))
       const ratio = V_curr / startValueWithCF;
@@ -470,7 +474,12 @@ function calculateReturns(portfolioData) {
         !isFinite(logReturn) ||
         Math.abs(logReturn) > 10
       ) {
+        console.warn(
+          `⚠️  TWR: Extreme log return ${logReturn?.toFixed(4)} on ${currDate} ` +
+          `(V_curr=${V_curr.toFixed(2)}, base=${startValueWithCF.toFixed(2)}). Setting to 0.`
+        );
         curr.dailyTWRReturn = 0;
+        curr._twrDataQualityIssue = true;
       } else {
         curr.dailyTWRReturn = logReturn;
       }
@@ -935,28 +944,31 @@ export async function updatePortfolioTimeseries(opts = {}) {
             db
           );
 
-          // Debug: Log if stock value is 0 but we have units
+          // Check for positions with missing prices and use last known price as fallback
           const unitsCount = Object.keys(units).filter(
             (s) => units[s] > 0
           ).length;
-          if (stockValue === 0 && unitsCount > 0) {
-            const symbolsWithoutPrices = positions
-              .filter((p) => p.price === 0)
-              .map((p) => p.symbol);
+          const symbolsWithoutPrices = positions
+            .filter((p) => p.price === 0 && p.units !== 0)
+            .map((p) => p.symbol);
 
-            if (symbolsWithoutPrices.length > 0) {
-              console.warn(
-                `⚠️  Account ${acctId} on ${dateKey}: Stock value is 0 but ${unitsCount} symbols have units. ` +
-                  `Missing prices for: ${symbolsWithoutPrices
-                    .slice(0, 10)
-                    .join(", ")}${
-                    symbolsWithoutPrices.length > 10
-                      ? `... (${symbolsWithoutPrices.length} total)`
-                      : ""
-                  }. ` +
-                  `Run updatePriceData.js to fetch missing prices.`
-              );
-            }
+          if (symbolsWithoutPrices.length > 0) {
+            console.error(
+              `❌ Account ${acctId} on ${dateKey}: Missing prices for ${symbolsWithoutPrices.length} symbol(s) with active positions: ` +
+                `${symbolsWithoutPrices.slice(0, 10).join(", ")}${
+                  symbolsWithoutPrices.length > 10
+                    ? `... (${symbolsWithoutPrices.length} total)`
+                    : ""
+                }. ` +
+                `Portfolio value will be understated. Run updatePriceData with --forceRefresh to fix.`
+            );
+            // Track missing prices in summary for upstream reporting
+            if (!summary._missingPrices) summary._missingPrices = [];
+            summary._missingPrices.push({
+              accountId: acctId,
+              date: dateKey,
+              symbols: symbolsWithoutPrices,
+            });
           }
 
           // Use forward-filled cash value (last known value up to this date)
@@ -984,6 +996,32 @@ export async function updatePortfolioTimeseries(opts = {}) {
 
         calculateReturns(portfolioData);
         calculatePeriodTWRReturns(portfolioData);
+
+        // Pre-write validation: check for data quality issues before persisting
+        let dataQualityErrors = 0;
+        for (const [dateKey, data] of portfolioData) {
+          // Check for NaN values that would corrupt the database
+          if (isNaN(data.totalValue) || isNaN(data.stockValue) || isNaN(data.cashValue)) {
+            console.error(`❌ Account ${acctId} on ${dateKey}: NaN detected in portfolio values (total: ${data.totalValue}, stock: ${data.stockValue}, cash: ${data.cashValue}). Skipping this record.`);
+            portfolioData.delete(dateKey);
+            dataQualityErrors++;
+            continue;
+          }
+          // Check totalValue consistency
+          const expectedTotal = data.stockValue + data.cashValue;
+          if (Math.abs(data.totalValue - expectedTotal) > 0.01) {
+            console.warn(`⚠️  Account ${acctId} on ${dateKey}: totalValue (${data.totalValue}) != stockValue (${data.stockValue}) + cashValue (${data.cashValue}). Correcting.`);
+            data.totalValue = expectedTotal;
+          }
+        }
+
+        if (dataQualityErrors > 0) {
+          console.warn(`⚠️  Account ${acctId}: ${dataQualityErrors} record(s) removed due to data quality issues`);
+          summary.errors.push({
+            accountId: acctId,
+            error: `${dataQualityErrors} records had NaN values and were excluded`,
+          });
+        }
 
         const portfolioCollection = db.collection("portfoliotimeseries");
         const ops = [];

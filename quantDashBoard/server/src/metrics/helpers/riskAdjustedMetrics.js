@@ -95,12 +95,14 @@ export function calculateSortinoRatio(returns, mar = 0, annualized = true) {
 
   let annualizedReturn = meanReturn;
   let annualizedDownsideDev = downsideDeviation;
+  let annualizedMAR = mar;
   if (annualized) {
     annualizedReturn = meanReturn * 252;
     annualizedDownsideDev = downsideDeviation * Math.sqrt(252);
+    annualizedMAR = mar * 252;
   }
 
-  return (annualizedReturn - mar) / annualizedDownsideDev;
+  return (annualizedReturn - annualizedMAR) / annualizedDownsideDev;
 }
 
 /**

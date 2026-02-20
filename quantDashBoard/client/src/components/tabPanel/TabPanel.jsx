@@ -1,11 +1,8 @@
 import React, { useState } from "react";
 import "./TabPanel.css";
 
-import Positions from "../positions/positions";
-
 const tabs = [
   { label: "Performance", key: "performance" },
-  { label: "Positions", key: "positions" },
   { label: "Risk", key: "risk" },
   { label: "Factor", key: "factor" },
   { label: "Distribution", key: "distribution" },
@@ -322,8 +319,6 @@ function TabPanel({ performanceMetrics, riskMetrics, factorMetrics }) {
     switch (activeTab) {
       case "performance":
         return renderPerformanceContent();
-      case "positions":
-        return <Positions />;
       case "risk":
         return renderRiskContent();
       case "factor":

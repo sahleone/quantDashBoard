@@ -154,7 +154,7 @@ function ConnectBrokerage() {
 
     try {
       const response = await authenticatedPost("/api/accounts/sync/full", {
-        fullSync: false,
+        fullSync: true,
       });
       const data = response.data || {};
       setFullSyncMessage(
