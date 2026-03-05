@@ -16,12 +16,10 @@ import AccountBalances from "../models/AccountBalances.js";
 import Metrics from "../models/Metrics.js";
 import PortfolioTimeseries from "../models/PortfolioTimeseries.js";
 import { config } from "../config/environment.js";
-import {
-  calculatePerformanceMetrics,
-  calculateRiskMetrics,
-  calculateFactorMetrics,
-  calculateMaxDrawdown,
-} from "../utils/metricsCalculations.js";
+import * as riskMetrics from "../metrics/helpers/riskMetrics.js";
+import * as riskAdjustedMetrics from "../metrics/helpers/riskAdjustedMetrics.js";
+import * as returnsMetrics from "../metrics/helpers/returnsMetrics.js";
+import * as portfolioSnapshotMetrics from "../metrics/helpers/portfolioSnapshotMetrics.js";
 import { calculateTWRFromDailyReturns } from "../metrics/helpers/returnsMetrics.js";
 
 /**
@@ -490,12 +488,29 @@ class MetricsController {
       }
 
       const periodsPerYear = 252;
-      const perfMetrics = calculatePerformanceMetrics(
+      const sharpe = riskAdjustedMetrics.calculateSharpeRatio(
         returns,
-        cumulativeReturns,
-        periodsPerYear,
-        this.riskFreeRate
+        this.riskFreeRate,
+        true
       );
+      const sortino = riskAdjustedMetrics.calculateSortinoRatio(
+        returns,
+        0,
+        true
+      );
+      const meanReturn =
+        returns.length > 0
+          ? returns.reduce((s, r) => s + r, 0) / returns.length
+          : 0;
+      const annualizedReturn = meanReturn * periodsPerYear;
+      const perfMetrics = {
+        sharpe,
+        sortino,
+        expectedReturn: meanReturn,
+        annualizedReturn,
+        calmar: null, // TODO: implement in helpers
+        alpha: null,
+      };
 
       // Use pre-calculated TWR if available, otherwise fall back to point-to-point return
       let totalReturn;
@@ -729,26 +744,32 @@ class MetricsController {
         });
       }
 
-      // Calculate risk metrics
-      const periodsPerYear = 252; // Daily returns
-      const riskMetrics = calculateRiskMetrics(
-        returns,
-        confLevel,
-        periodsPerYear,
-        this.riskFreeRate
-      );
+      // Calculate risk metrics from helpers
+      const periodsPerYear = 252;
+      const volatility = riskMetrics.calculateVolatility(returns, true);
+      const var95Raw = riskMetrics.calculateVaRHistorical(returns, confLevel);
+      const cvar95Raw = riskMetrics.calculateCVaR(returns, var95Raw);
+      // TODO: implement in helpers — downsideDeviation, omega, sharpeConfidenceInterval
+      const riskResult = {
+        annualizedVolatility: volatility,
+        var95: Math.abs(var95Raw),
+        cvar95: Math.abs(cvar95Raw),
+        downsideDeviation: null,
+        omega: null,
+        sharpeConfidenceInterval: null,
+      };
 
-      // Calculate max drawdown
-      const maxDrawdown = calculateMaxDrawdown(cumulativeReturns);
+      // Max drawdown: helper returns negative (e.g. -0.25); API expects negative
+      const maxDrawdown = riskMetrics.calculateMaxDrawdown(cumulativeReturns);
 
       const risk = {
-        volatility: riskMetrics.annualizedVolatility,
+        volatility: riskResult.annualizedVolatility,
         maxDrawdown: maxDrawdown,
-        var95: riskMetrics.var95,
-        cvar95: riskMetrics.cvar95,
-        downsideDeviation: riskMetrics.downsideDeviation,
-        omega: riskMetrics.omega,
-        sharpeConfidenceInterval: riskMetrics.sharpeConfidenceInterval,
+        var95: riskResult.var95,
+        cvar95: riskResult.cvar95,
+        downsideDeviation: riskResult.downsideDeviation,
+        omega: riskResult.omega,
+        sharpeConfidenceInterval: riskResult.sharpeConfidenceInterval,
         beta: null, // Beta requires benchmark, calculated in factor metrics
       };
 
@@ -768,14 +789,14 @@ class MetricsController {
                 accountId,
                 date: today,
                 period: period,
-                "metrics.volatility": riskMetrics.annualizedVolatility,
+                "metrics.volatility": riskResult.annualizedVolatility,
                 "metrics.maxDrawdown": maxDrawdown,
-                "metrics.var95": riskMetrics.var95,
-                "metrics.cvar95": riskMetrics.cvar95,
-                "metrics.downsideDeviation": riskMetrics.downsideDeviation,
-                "metrics.omega": riskMetrics.omega,
+                "metrics.var95": riskResult.var95,
+                "metrics.cvar95": riskResult.cvar95,
+                "metrics.downsideDeviation": riskResult.downsideDeviation,
+                "metrics.omega": riskResult.omega,
                 "metrics.sharpeConfidenceInterval":
-                  riskMetrics.sharpeConfidenceInterval,
+                  riskResult.sharpeConfidenceInterval,
                 computedAtUtc: new Date(),
               },
             },
