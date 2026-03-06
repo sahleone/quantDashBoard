@@ -12,8 +12,10 @@
  */
 
 import express from "express";
+import jwt from "jsonwebtoken";
 import connectionsController from "../controllers/connectionsController.js";
 import { requireAuth } from "../middleware/authMiddleware.js";
+import { config } from "../config/environment.js";
 import updateConnectionsForUser from "../utils/updateConnections.js";
 
 const router = express.Router();
@@ -56,8 +58,6 @@ router.get("/debug", (req, res) => {
   let tokenError = null;
   if (token) {
     try {
-      const jwt = require("jsonwebtoken");
-      const { config } = require("../config/environment.js");
       tokenDecoded = jwt.decode(token);
       jwt.verify(token, config.jwt.secret);
     } catch (error) {
