@@ -89,7 +89,7 @@ class MetricsController {
 
       const timeseriesData = await PortfolioTimeseries.find(query).sort({
         date: 1,
-      });
+      }).lean();
 
       console.log(
         `Found ${timeseriesData.length} portfolio timeseries records for user ${userId} in range ${range}`
@@ -319,7 +319,7 @@ class MetricsController {
           accountId,
           date: { $lte: metricsDateCeiling },
           period: period,
-        }).sort({ date: -1 });
+        }).sort({ date: -1 }).lean();
       }
 
       if (metricsDoc && metricsDoc.metrics) {
@@ -644,7 +644,7 @@ class MetricsController {
           accountId,
           date: { $lte: metricsDateCeiling },
           period: period,
-        }).sort({ date: -1 });
+        }).sort({ date: -1 }).lean();
       }
 
       if (metricsDoc && metricsDoc.metrics) {
@@ -978,7 +978,7 @@ class MetricsController {
       if (accountId) {
         query.accountId = accountId;
       }
-      const holdings = await AccountHoldings.find(query).sort({ asOfDate: 1 });
+      const holdings = await AccountHoldings.find(query).sort({ asOfDate: 1 }).lean();
 
       // Calculate time series
       const timeSeries = this.calculateTimeSeries(holdings, series, range);
