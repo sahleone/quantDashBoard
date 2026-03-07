@@ -22,59 +22,7 @@ import * as returnsMetrics from "./helpers/returnsMetrics.js";
 import * as riskMetrics from "./helpers/riskMetrics.js";
 import * as riskAdjustedMetrics from "./helpers/riskAdjustedMetrics.js";
 import * as diversificationMetrics from "./helpers/diversificationMetrics.js";
-
-/**
- * Calculates the date range for a given period ending at asOfDate
- * @param {string} period - Period identifier (1M, 3M, YTD, 1Y, ALL)
- * @param {Date} asOfDate - End date for the period
- * @returns {{startDate: Date|null, endDate: Date}} - Date range object
- */
-function getPeriodDateRange(period, asOfDate) {
-  const endDate = new Date(asOfDate);
-  endDate.setUTCHours(23, 59, 59, 999);
-
-  // Use UTC-based arithmetic to avoid setMonth overflow and timezone issues.
-  // e.g. March 31 minus 1 month should give Feb 28, not March 3.
-  const endYear = endDate.getUTCFullYear();
-  const endMonth = endDate.getUTCMonth();
-  const endDay = endDate.getUTCDate();
-
-  let startDate;
-
-  switch (period) {
-    case "1M": {
-      let targetMonth = endMonth - 1;
-      let targetYear = endYear;
-      if (targetMonth < 0) { targetMonth += 12; targetYear -= 1; }
-      const lastDay = new Date(Date.UTC(targetYear, targetMonth + 1, 0)).getUTCDate();
-      startDate = new Date(Date.UTC(targetYear, targetMonth, Math.min(endDay, lastDay)));
-      break;
-    }
-    case "3M": {
-      let targetMonth = endMonth - 3;
-      let targetYear = endYear;
-      while (targetMonth < 0) { targetMonth += 12; targetYear -= 1; }
-      const lastDay = new Date(Date.UTC(targetYear, targetMonth + 1, 0)).getUTCDate();
-      startDate = new Date(Date.UTC(targetYear, targetMonth, Math.min(endDay, lastDay)));
-      break;
-    }
-    case "YTD":
-      startDate = new Date(Date.UTC(endYear, 0, 1));
-      break;
-    case "1Y": {
-      const lastDay = new Date(Date.UTC(endYear - 1, endMonth + 1, 0)).getUTCDate();
-      startDate = new Date(Date.UTC(endYear - 1, endMonth, Math.min(endDay, lastDay)));
-      break;
-    }
-    case "ALL":
-      return { startDate: null, endDate };
-    default:
-      throw new Error(`Unknown period: ${period}`);
-  }
-
-  startDate.setUTCHours(0, 0, 0, 0);
-  return { startDate, endDate };
-}
+import { getDateRange } from './helpers/dateRanges.js';
 
 /**
  * Fetches SPY benchmark returns for beta calculation
@@ -142,10 +90,7 @@ async function fetchBenchmarkReturns(startDate, endDate, db, portfolioDates = nu
  * @returns {Object|null} - Metrics object or null if no data available
  */
 async function calculatePeriodMetrics(accountId, userId, period, asOfDate, db) {
-  const { startDate: periodStart, endDate } = getPeriodDateRange(
-    period,
-    asOfDate
-  );
+  const { startDate: periodStart, endDate } = getDateRange(period, asOfDate);
 
   const portfolioCollection = db.collection("portfoliotimeseries");
   let query = {

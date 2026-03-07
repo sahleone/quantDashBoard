@@ -21,6 +21,7 @@ import * as riskAdjustedMetrics from "../metrics/helpers/riskAdjustedMetrics.js"
 import * as returnsMetrics from "../metrics/helpers/returnsMetrics.js";
 import * as portfolioSnapshotMetrics from "../metrics/helpers/portfolioSnapshotMetrics.js";
 import { calculateTWRFromDailyReturns } from "../metrics/helpers/returnsMetrics.js";
+import { getDateRange, mapRangeToPeriod } from '../metrics/helpers/dateRanges.js';
 
 /**
  * Metrics Controller
@@ -74,11 +75,13 @@ class MetricsController {
         }`
       );
 
-      const { startDate, endDate } = this.calculateDateRange(range);
+      const { startDate, endDate } = getDateRange(range);
 
+      const dateFilter = { $lte: endDate };
+      if (startDate) dateFilter.$gte = startDate;
       const query = {
         userId,
-        date: { $gte: startDate, $lte: endDate },
+        date: dateFilter,
       };
       if (accountId) {
         query.accountId = accountId;
@@ -294,7 +297,7 @@ class MetricsController {
       }
 
       const { range = "ALL", accountId } = req.query;
-      const period = this.mapRangeToPeriod(range);
+      const period = mapRangeToPeriod(range);
 
       console.log(
         `Getting performance metrics for user: ${userId}, range: ${range}, period: ${period}, accountId: ${
@@ -335,10 +338,12 @@ class MetricsController {
         });
       }
 
-      const { startDate } = this.calculateDateRange(range);
+      const { startDate } = getDateRange(range);
+      const dateFilter = { $lte: today };
+      if (startDate) dateFilter.$gte = startDate;
       const query = {
         userId,
-        date: { $gte: startDate, $lte: today },
+        date: dateFilter,
       };
       if (accountId) {
         query.accountId = accountId;
@@ -643,7 +648,7 @@ class MetricsController {
       }
 
       const { range = "1Y", accountId, confidence = 0.95 } = req.query;
-      const period = this.mapRangeToPeriod(range);
+      const period = mapRangeToPeriod(range);
       const confLevel = parseFloat(confidence);
 
       console.log(
@@ -687,10 +692,12 @@ class MetricsController {
         });
       }
 
-      const { startDate } = this.calculateDateRange(range);
+      const { startDate } = getDateRange(range);
+      const dateFilter = { $lte: today };
+      if (startDate) dateFilter.$gte = startDate;
       const query = {
         userId,
-        date: { $gte: startDate, $lte: today },
+        date: dateFilter,
       };
       if (accountId) {
         query.accountId = accountId;
@@ -899,14 +906,16 @@ class MetricsController {
       );
 
       // Get portfolio time series data
-      const { startDate } = this.calculateDateRange(range);
+      const { startDate } = getDateRange(range);
       const now = new Date();
       const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
       today.setUTCHours(0, 0, 0, 0);
 
+      const dateFilter = { $lte: today };
+      if (startDate) dateFilter.$gte = startDate;
       const query = {
         userId,
-        date: { $gte: startDate, $lte: today },
+        date: dateFilter,
       };
       if (safeAccountId) {
         // Use $eq to ensure accountId is treated as a literal value
@@ -1017,11 +1026,13 @@ class MetricsController {
       );
 
       // Get historical holdings data
-      const { startDate } = this.calculateDateRange(range);
+      const { startDate } = getDateRange(range);
+      const dateFilter = {};
+      if (startDate) dateFilter.$gte = startDate;
       const query = {
         userId,
-        asOfDate: { $gte: startDate },
       };
+      if (Object.keys(dateFilter).length > 0) query.asOfDate = dateFilter;
       if (accountId) {
         query.accountId = accountId;
       }
@@ -1049,61 +1060,6 @@ class MetricsController {
   }
 
   // Helper Methods
-
-  /**
-   * Map range parameter to period enum value
-   */
-  mapRangeToPeriod(range) {
-    const rangeUpper = range.toUpperCase();
-    switch (rangeUpper) {
-      case "1M":
-        return "1M";
-      case "3M":
-        return "3M";
-      case "YTD":
-        return "YTD";
-      case "1Y":
-        return "1Y";
-      case "ITD":
-      case "ALL":
-      case "ALLTIME":
-        return "ALL";
-      default:
-        return "ALL";
-    }
-  }
-
-  /**
-   * Calculate date range based on range parameter
-   */
-  calculateDateRange(range) {
-    const now = new Date();
-    const startDate = new Date();
-
-    switch (range.toUpperCase()) {
-      case "1M":
-        startDate.setMonth(now.getMonth() - 1);
-        break;
-      case "3M":
-        startDate.setMonth(now.getMonth() - 3);
-        break;
-      case "YTD":
-        startDate.setMonth(0, 1);
-        break;
-      case "1Y":
-        startDate.setFullYear(now.getFullYear() - 1);
-        break;
-      case "ALL":
-      case "ITD":
-      case "ALLTIME":
-        startDate.setFullYear(1970, 0, 1); // Start from 1970 for All Time
-        break;
-      default:
-        startDate.setMonth(now.getMonth() - 3);
-    }
-
-    return { startDate, endDate: now };
-  }
 
   /**
    * Calculate portfolio time series from holdings data
