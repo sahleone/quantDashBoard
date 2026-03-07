@@ -883,9 +883,18 @@ class MetricsController {
 
       const { range = "YTD", accountId } = req.query;
 
+      // Sanitize accountId to prevent NoSQL injection via query operators
+      let safeAccountId = null;
+      if (typeof accountId === "string") {
+        const trimmed = accountId.trim();
+        if (trimmed.length > 0) {
+          safeAccountId = trimmed;
+        }
+      }
+
       console.log(
         `Getting KPI metrics for user: ${userId}, range: ${range}, accountId: ${
-          accountId || "all"
+          safeAccountId || "all"
         }`
       );
 
@@ -899,8 +908,9 @@ class MetricsController {
         userId,
         date: { $gte: startDate, $lte: today },
       };
-      if (accountId) {
-        query.accountId = accountId;
+      if (safeAccountId) {
+        // Use $eq to ensure accountId is treated as a literal value
+        query.accountId = { $eq: safeAccountId };
       }
 
       const portfolioData = await PortfolioTimeseries.find(query)
