@@ -89,7 +89,7 @@ class MetricsController {
 
       const timeseriesData = await PortfolioTimeseries.find(query).sort({
         date: 1,
-      });
+      }).lean();
 
       console.log(
         `Found ${timeseriesData.length} portfolio timeseries records for user ${userId} in range ${range}`
@@ -308,15 +308,18 @@ class MetricsController {
       const now = new Date();
       const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
       today.setUTCHours(0, 0, 0, 0);
+      const metricsDateCeiling = new Date(Date.UTC(
+        now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999
+      ));
 
       let metricsDoc = null;
       if (accountId) {
         metricsDoc = await Metrics.findOne({
           userId,
           accountId,
-          date: today,
+          date: { $lte: metricsDateCeiling },
           period: period,
-        });
+        }).sort({ date: -1 }).lean();
       }
 
       if (metricsDoc && metricsDoc.metrics) {
@@ -569,36 +572,6 @@ class MetricsController {
         volatility: null,
       };
 
-      if (accountId && returns.length >= 2) {
-        try {
-          await Metrics.findOneAndUpdate(
-            {
-              userId,
-              accountId,
-              date: today,
-              period: period,
-            },
-            {
-              $set: {
-                userId,
-                accountId,
-                date: today,
-                period: period,
-                "metrics.totalReturn": totalReturn,
-                "metrics.cagr": cagr,
-                "metrics.sharpe": perfMetrics.sharpe,
-                "metrics.sortino": perfMetrics.sortino,
-                "metrics.calmar": perfMetrics.calmar,
-                computedAtUtc: new Date(),
-              },
-            },
-            { upsert: true, new: true }
-          );
-        } catch (dbError) {
-          console.error("Error storing performance metrics:", dbError);
-        }
-      }
-
       res.status(200).json({
         range: range,
         performance: performance,
@@ -660,15 +633,18 @@ class MetricsController {
       const now = new Date();
       const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
       today.setUTCHours(0, 0, 0, 0);
+      const metricsDateCeiling = new Date(Date.UTC(
+        now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999
+      ));
 
       let metricsDoc = null;
       if (accountId) {
         metricsDoc = await Metrics.findOne({
           userId,
           accountId,
-          date: today,
+          date: { $lte: metricsDateCeiling },
           period: period,
-        });
+        }).sort({ date: -1 }).lean();
       }
 
       if (metricsDoc && metricsDoc.metrics) {
@@ -779,40 +755,6 @@ class MetricsController {
         sharpeConfidenceInterval: riskResult.sharpeConfidenceInterval,
         beta: null, // Beta requires benchmark, calculated in factor metrics
       };
-
-      // Store in database if accountId is provided
-      if (accountId && returns.length >= 2) {
-        try {
-          await Metrics.findOneAndUpdate(
-            {
-              userId,
-              accountId,
-              date: today,
-              period: period,
-            },
-            {
-              $set: {
-                userId,
-                accountId,
-                date: today,
-                period: period,
-                "metrics.volatility": riskResult.annualizedVolatility,
-                "metrics.maxDrawdown": maxDrawdown,
-                "metrics.var95": riskResult.var95,
-                "metrics.cvar95": riskResult.cvar95,
-                "metrics.downsideDeviation": riskResult.downsideDeviation,
-                "metrics.omega": riskResult.omega,
-                "metrics.sharpeConfidenceInterval":
-                  riskResult.sharpeConfidenceInterval,
-                computedAtUtc: new Date(),
-              },
-            },
-            { upsert: true, new: true }
-          );
-        } catch (dbError) {
-          console.error("Error storing risk metrics:", dbError);
-        }
-      }
 
       res.status(200).json({
         range: range,
@@ -1036,7 +978,7 @@ class MetricsController {
       if (accountId) {
         query.accountId = accountId;
       }
-      const holdings = await AccountHoldings.find(query).sort({ asOfDate: 1 });
+      const holdings = await AccountHoldings.find(query).sort({ asOfDate: 1 }).lean();
 
       // Calculate time series
       const timeSeries = this.calculateTimeSeries(holdings, series, range);
