@@ -572,36 +572,6 @@ class MetricsController {
         volatility: null,
       };
 
-      if (accountId && returns.length >= 2) {
-        try {
-          await Metrics.findOneAndUpdate(
-            {
-              userId,
-              accountId,
-              date: today,
-              period: period,
-            },
-            {
-              $set: {
-                userId,
-                accountId,
-                date: today,
-                period: period,
-                "metrics.totalReturn": totalReturn,
-                "metrics.cagr": cagr,
-                "metrics.sharpe": perfMetrics.sharpe,
-                "metrics.sortino": perfMetrics.sortino,
-                "metrics.calmar": perfMetrics.calmar,
-                computedAtUtc: new Date(),
-              },
-            },
-            { upsert: true, new: true }
-          );
-        } catch (dbError) {
-          console.error("Error storing performance metrics:", dbError);
-        }
-      }
-
       res.status(200).json({
         range: range,
         performance: performance,
@@ -785,40 +755,6 @@ class MetricsController {
         sharpeConfidenceInterval: riskResult.sharpeConfidenceInterval,
         beta: null, // Beta requires benchmark, calculated in factor metrics
       };
-
-      // Store in database if accountId is provided
-      if (accountId && returns.length >= 2) {
-        try {
-          await Metrics.findOneAndUpdate(
-            {
-              userId,
-              accountId,
-              date: today,
-              period: period,
-            },
-            {
-              $set: {
-                userId,
-                accountId,
-                date: today,
-                period: period,
-                "metrics.volatility": riskResult.annualizedVolatility,
-                "metrics.maxDrawdown": maxDrawdown,
-                "metrics.var95": riskResult.var95,
-                "metrics.cvar95": riskResult.cvar95,
-                "metrics.downsideDeviation": riskResult.downsideDeviation,
-                "metrics.omega": riskResult.omega,
-                "metrics.sharpeConfidenceInterval":
-                  riskResult.sharpeConfidenceInterval,
-                computedAtUtc: new Date(),
-              },
-            },
-            { upsert: true, new: true }
-          );
-        } catch (dbError) {
-          console.error("Error storing risk metrics:", dbError);
-        }
-      }
 
       res.status(200).json({
         range: range,
