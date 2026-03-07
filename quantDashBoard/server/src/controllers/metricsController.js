@@ -843,70 +843,12 @@ class MetricsController {
    * Response: { model: "FF3", exposures: {...}, statistics: {...} }
    */
   async getFactorExposures(req, res) {
-    try {
-      const userId = req.user?.userId;
-
-      if (!userId) {
-        return res.status(400).json({
-          error: {
-            code: "VALIDATION_ERROR",
-            message: "Missing required parameter: userId is required",
-          },
-        });
-      }
-      const { model = "FF3", range = "1Y", accountId } = req.query;
-
-      console.log(
-        `Getting factor exposures for user: ${userId}, model: ${model}, range: ${range}, accountId: ${
-          accountId || "all"
-        }`
-      );
-
-      // Get historical holdings data
-      const { startDate } = this.calculateDateRange(range);
-      const query = {
-        userId,
-        asOfDate: { $gte: startDate },
-      };
-      if (accountId) {
-        query.accountId = accountId;
-      }
-      const holdings = await AccountHoldings.find(query).sort({ asOfDate: 1 });
-
-      // Calculate factor exposures
-      const factorExposures = this.calculateFactorExposures(
-        holdings,
-        model,
-        range
-      );
-
-      if (!factorExposures) {
-        return res.status(501).json({
-          error: {
-            code: "FACTOR_NOT_IMPLEMENTED",
-            message:
-              "Factor exposure calculation is not yet implemented. Requires factor return data and regression analysis.",
-          },
-        });
-      }
-
-      res.status(200).json({
-        model: model,
-        range: range,
-        exposures: factorExposures.exposures,
-        statistics: factorExposures.statistics,
-        calculatedAt: new Date(),
-      });
-    } catch (error) {
-      console.error("Error getting factor exposures:", error);
-      res.status(500).json({
-        error: {
-          code: "FACTOR_CALCULATION_FAILED",
-          message: "Failed to calculate factor exposures",
-          retryAfter: 60,
-        },
-      });
-    }
+    return res.status(501).json({
+      error: {
+        code: "NOT_IMPLEMENTED",
+        message: "Factor exposure analysis is not yet implemented",
+      },
+    });
   }
 
   /**
@@ -941,25 +883,84 @@ class MetricsController {
 
       const { range = "YTD", accountId } = req.query;
 
+      // Sanitize accountId to prevent NoSQL injection via query operators
+      let safeAccountId = null;
+      if (typeof accountId === "string") {
+        const trimmed = accountId.trim();
+        if (trimmed.length > 0) {
+          safeAccountId = trimmed;
+        }
+      }
+
       console.log(
         `Getting KPI metrics for user: ${userId}, range: ${range}, accountId: ${
-          accountId || "all"
+          safeAccountId || "all"
         }`
       );
 
-      // Get historical holdings data
+      // Get portfolio time series data
       const { startDate } = this.calculateDateRange(range);
+      const now = new Date();
+      const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+      today.setUTCHours(0, 0, 0, 0);
+
       const query = {
         userId,
-        asOfDate: { $gte: startDate },
+        date: { $gte: startDate, $lte: today },
       };
-      if (accountId) {
-        query.accountId = accountId;
+      if (safeAccountId) {
+        // Use $eq to ensure accountId is treated as a literal value
+        query.accountId = { $eq: safeAccountId };
       }
-      const holdings = await AccountHoldings.find(query).sort({ asOfDate: 1 });
 
-      // Calculate KPIs
-      const kpis = this.calculateKPIs(holdings, range);
+      const portfolioData = await PortfolioTimeseries.find(query)
+        .sort({ date: 1 })
+        .lean();
+
+      const returns = portfolioData
+        .map((pt) => pt.simpleReturns || pt.dailyTWRReturn)
+        .filter((r) => r !== null && r !== undefined && !isNaN(r));
+
+      if (returns.length < 2) {
+        return res.status(200).json({
+          range: range,
+          kpis: {
+            sharpe: null,
+            sortino: null,
+            beta: null,
+            maxDrawdown: null,
+            cagr: null,
+            volatility: null,
+          },
+          calculatedAt: new Date(),
+        });
+      }
+
+      // Build equity index from returns
+      const equityIndex = [1];
+      for (const r of returns) equityIndex.push(equityIndex[equityIndex.length - 1] * (1 + r));
+
+      const volatility = riskMetrics.calculateVolatility(returns, true);
+      const sharpe = riskAdjustedMetrics.calculateSharpeRatio(returns, 0, true);
+      const sortino = riskAdjustedMetrics.calculateSortinoRatio(returns, 0, true);
+      const maxDrawdown = riskMetrics.calculateMaxDrawdown(equityIndex);
+
+      // Calculate CAGR from total return
+      const firstValue = portfolioData[0].totalValue || portfolioData[0].equityIndex || 0;
+      const lastValue = portfolioData[portfolioData.length - 1].totalValue || portfolioData[portfolioData.length - 1].equityIndex || 0;
+      const totalReturn = firstValue > 0 ? (lastValue - firstValue) / firstValue : 0;
+      const days = (today - startDate) / (1000 * 60 * 60 * 24);
+      const years = days / 365.25;
+      const cagr = years > 0 ? Math.pow(1 + totalReturn, 1 / years) - 1 : 0;
+
+      const kpis = {
+        sharpe: sharpe,
+        sortino: sortino,
+        beta: null, // TODO: requires benchmark returns and regression to compute
+        maxDrawdown: maxDrawdown,
+        cagr: cagr,
+        volatility: volatility,
+      };
 
       res.status(200).json({
         range: range,
@@ -1136,17 +1137,6 @@ class MetricsController {
       });
 
     return timeSeries;
-  }
-
-  /**
-   * Calculate total return from time series (simple point-to-point)
-   * @deprecated Use calculateTimeWeightedReturn for accurate returns with cash flows
-   */
-  calculateTotalReturn(timeSeries) {
-    if (timeSeries.length < 2) return 0;
-    const startValue = timeSeries[0].equity;
-    const endValue = timeSeries[timeSeries.length - 1].equity;
-    return (endValue - startValue) / startValue;
   }
 
   /**
@@ -1371,40 +1361,10 @@ class MetricsController {
   }
 
   /**
-   * Calculate risk metrics
+   * Calculate time series metrics
    */
-  calculateRiskMetrics(holdings, range) {
-    // Calculate daily returns
-    const returns = this.calculateDailyReturns(holdings);
-
-    if (returns.length < 2) {
-      return {
-        volatility: 0,
-        beta: 0,
-        maxDrawdown: 0,
-        var95: 0,
-      };
-    }
-
-    const volatility = this.calculateVolatility(returns);
-    const beta = this.calculateBeta(returns);
-    const maxDrawdown = this.calculateMaxDrawdown(returns);
-    const var95 = this.calculateVaR(returns, 0.95);
-
-    return {
-      volatility: volatility,
-      beta: beta,
-      maxDrawdown: maxDrawdown,
-      var95: var95,
-      sharpe: this.calculateSharpeRatio(returns),
-      sortino: this.calculateSortinoRatio(returns),
-    };
-  }
-
-  /**
-   * Calculate daily returns from holdings
-   */
-  calculateDailyReturns(holdings) {
+  calculateTimeSeries(holdings, series, range) {
+    // Compute daily returns from holdings market values
     const returns = [];
     for (let i = 1; i < holdings.length; i++) {
       const prevValue = holdings[i - 1].marketValue || 0;
@@ -1413,134 +1373,6 @@ class MetricsController {
         returns.push((currentValue - prevValue) / prevValue);
       }
     }
-    return returns;
-  }
-
-  /**
-   * Calculate volatility (annualized)
-   */
-  calculateVolatility(returns) {
-    if (returns.length < 2) return 0;
-    const mean = returns.reduce((sum, r) => sum + r, 0) / returns.length;
-    const variance =
-      returns.reduce((sum, r) => sum + Math.pow(r - mean, 2), 0) /
-      (returns.length - 1);
-    return Math.sqrt(variance) * Math.sqrt(252); // Annualized
-  }
-
-  /**
-   * Calculate beta (simplified - would need benchmark data)
-   */
-  calculateBeta(returns) {
-    // This is a placeholder - would need benchmark returns for proper calculation
-    return 0.94; // Default value
-  }
-
-  /**
-   * Calculate maximum drawdown
-   */
-  calculateMaxDrawdown(returns) {
-    let peak = 0;
-    let maxDD = 0;
-    let cumulative = 1;
-
-    returns.forEach((ret) => {
-      cumulative *= 1 + ret;
-      if (cumulative > peak) {
-        peak = cumulative;
-      }
-      const drawdown = (peak - cumulative) / peak;
-      if (drawdown > maxDD) {
-        maxDD = drawdown;
-      }
-    });
-
-    return -maxDD; // Return as negative
-  }
-
-  /**
-   * Calculate Value at Risk (parametric)
-   */
-  calculateVaR(returns, confidence) {
-    if (returns.length < 2) return 0;
-    const sortedReturns = [...returns].sort((a, b) => a - b);
-    const index = Math.floor((1 - confidence) * sortedReturns.length);
-    return sortedReturns[index] || 0;
-  }
-
-  /**
-   * Calculate Sharpe ratio
-   */
-  calculateSharpeRatio(returns) {
-    if (returns.length < 2) return 0;
-    const meanReturn = returns.reduce((sum, r) => sum + r, 0) / returns.length;
-    const volatility = this.calculateVolatility(returns);
-    return volatility > 0
-      ? (meanReturn - this.riskFreeRate / 252) / (volatility / Math.sqrt(252))
-      : 0;
-  }
-
-  /**
-   * Calculate Sortino ratio
-   */
-  calculateSortinoRatio(returns) {
-    if (returns.length < 2) return 0;
-    const meanReturn = returns.reduce((sum, r) => sum + r, 0) / returns.length;
-    const negativeReturns = returns.filter((r) => r < 0);
-    if (negativeReturns.length === 0) return 0;
-
-    const downsideDeviation = Math.sqrt(
-      negativeReturns.reduce((sum, r) => sum + Math.pow(r, 2), 0) /
-        negativeReturns.length
-    );
-
-    return downsideDeviation > 0
-      ? (meanReturn - this.riskFreeRate / 252) / downsideDeviation
-      : 0;
-  }
-
-  /**
-   * Calculate factor exposures
-   */
-  calculateFactorExposures(holdings, model, range) {
-    // TODO: Implement with actual factor data (e.g. Fama-French from Ken French's data library)
-    // and OLS regression against portfolio returns. Returning null until implemented.
-    return null;
-  }
-
-  /**
-   * Calculate KPIs
-   */
-  calculateKPIs(holdings, range) {
-    const returns = this.calculateDailyReturns(holdings);
-    const volatility = this.calculateVolatility(returns);
-    const sharpe = this.calculateSharpeRatio(returns);
-    const sortino = this.calculateSortinoRatio(returns);
-    const maxDrawdown = this.calculateMaxDrawdown(returns);
-
-    // Calculate CAGR
-    const { startDate } = this.calculateDateRange(range);
-    const years = (new Date() - startDate) / (365.25 * 24 * 60 * 60 * 1000);
-    const totalReturn = this.calculateTotalReturn(
-      this.calculatePortfolioTimeSeries(holdings, range)
-    );
-    const cagr = years > 0 ? Math.pow(1 + totalReturn, 1 / years) - 1 : 0;
-
-    return {
-      sharpe: sharpe,
-      sortino: sortino,
-      beta: null, // TODO: requires benchmark returns and regression to compute
-      maxDrawdown: maxDrawdown,
-      cagr: cagr,
-      volatility: volatility,
-    };
-  }
-
-  /**
-   * Calculate time series metrics
-   */
-  calculateTimeSeries(holdings, series, range) {
-    const returns = this.calculateDailyReturns(holdings);
     const timeSeries = [];
 
     if (series.includes("returns")) {
@@ -1556,7 +1388,7 @@ class MetricsController {
       const window = 21; // 21-day rolling volatility
       for (let i = window; i < returns.length; i++) {
         const windowReturns = returns.slice(i - window, i);
-        const vol = this.calculateVolatility(windowReturns);
+        const vol = riskMetrics.calculateVolatility(windowReturns, true);
         timeSeries.push({
           date: holdings[i]?.asOfDate?.toISOString().split("T")[0],
           volatility: vol,
