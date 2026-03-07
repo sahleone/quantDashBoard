@@ -10,6 +10,7 @@ export default {
     '../riskAdjustedMetrics.js',
     '../returnsMetrics.js',
     '../diversificationMetrics.js',
+    '../dateRanges.js',
   ],
   coverageDirectory: './coverage',
   coverageThresholds: {
