@@ -308,15 +308,18 @@ class MetricsController {
       const now = new Date();
       const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
       today.setUTCHours(0, 0, 0, 0);
+      const metricsDateCeiling = new Date(Date.UTC(
+        now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999
+      ));
 
       let metricsDoc = null;
       if (accountId) {
         metricsDoc = await Metrics.findOne({
           userId,
           accountId,
-          date: today,
+          date: { $lte: metricsDateCeiling },
           period: period,
-        });
+        }).sort({ date: -1 });
       }
 
       if (metricsDoc && metricsDoc.metrics) {
@@ -660,15 +663,18 @@ class MetricsController {
       const now = new Date();
       const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
       today.setUTCHours(0, 0, 0, 0);
+      const metricsDateCeiling = new Date(Date.UTC(
+        now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999
+      ));
 
       let metricsDoc = null;
       if (accountId) {
         metricsDoc = await Metrics.findOne({
           userId,
           accountId,
-          date: today,
+          date: { $lte: metricsDateCeiling },
           period: period,
-        });
+        }).sort({ date: -1 });
       }
 
       if (metricsDoc && metricsDoc.metrics) {
