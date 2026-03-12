@@ -12,7 +12,7 @@ import User from "../models/Users.js";
 import Connection from "../models/Connection.js";
 import Account from "../models/AccountsList.js";
 import AccountBalances from "../models/AccountBalances.js";
-import AccountPositions from "../models/AccountHoldings.js";
+import AccountHoldings from "../models/AccountHoldings.js";
 import Metrics from "../models/Metrics.js";
 import Options from "../models/Options.js";
 import OptionsServiceClientService from "../clients/optionsClient.js";
@@ -623,7 +623,7 @@ class SnapTradeController {
         );
 
         // Check if position already exists for today
-        const existingPosition = await AccountPositions.findOne({
+        const existingPosition = await AccountHoldings.findOne({
           asOfDate: {
             $gte: new Date(
               currentDate.getFullYear(),
@@ -674,7 +674,7 @@ class SnapTradeController {
           syncedPositions.push(existingPosition);
         } else {
           // Create new position
-          const newPosition = new AccountPositions({
+          const newPosition = new AccountHoldings({
             asOfDate: currentDate,
             userId: userId,
             accountId: accountId,
@@ -1253,7 +1253,7 @@ class SnapTradeController {
       let fetchedFromSnapTrade = false;
 
       if (accountIds.length) {
-        const storedPositions = await AccountPositions.find({
+        const storedPositions = await AccountHoldings.find({
           accountId: { $in: accountIds },
         })
           .sort({ asOfDate: -1 })
@@ -1289,7 +1289,7 @@ class SnapTradeController {
           }
 
           if (fetchedFromSnapTrade) {
-            const refreshedPositions = await AccountPositions.find({
+            const refreshedPositions = await AccountHoldings.find({
               accountId: {
                 $in: accountsMissingPositions.map((acc) => acc.accountId),
               },
@@ -1449,7 +1449,7 @@ class SnapTradeController {
 
       // Clean up MongoDB data
       await Connection.deleteMany({ userId });
-      await AccountPositions.deleteMany({ accountId: { $in: accountIds } });
+      await AccountHoldings.deleteMany({ accountId: { $in: accountIds } });
       await AccountBalances.deleteMany({ accountId: { $in: accountIds } });
       await Account.deleteMany({ userId });
 

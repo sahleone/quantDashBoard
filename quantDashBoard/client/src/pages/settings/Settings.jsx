@@ -59,7 +59,7 @@ function Settings() {
       if (window.snaptradeConnectionsBefore === -1) {
         try {
           const response = await makeAuthenticatedRequest(
-            "http://localhost:3000/api/connections"
+            "/api/connections"
           );
           const currentConnections = response.data.connections || [];
           window.snaptradeConnectionsBefore = currentConnections.length;
@@ -82,7 +82,7 @@ function Settings() {
 
       try {
         const response = await makeAuthenticatedRequest(
-          "http://localhost:3000/api/connections"
+          "/api/connections"
         );
 
         const currentConnections = response.data.connections || [];
@@ -104,7 +104,7 @@ function Settings() {
           // Populate all databases with new connection data
           try {
             const syncResponse = await makeAuthenticatedRequest(
-              "http://localhost:3000/api/accounts/sync/holdings",
+              "/api/accounts/sync/holdings",
               {
                 method: "POST",
                 data: {
@@ -204,7 +204,7 @@ function Settings() {
         try {
           // Exchange authorization for connection details
           const response = await makeAuthenticatedRequest(
-            "http://localhost:3000/api/connections/snaptrade/exchange",
+            "/api/connections/snaptrade/exchange",
             {
               method: "POST",
               data: {
@@ -219,7 +219,7 @@ function Settings() {
           // Sync accounts data after successful connection
           try {
             const syncResponse = await makeAuthenticatedRequest(
-              "http://localhost:3000/api/accounts/sync/holdings",
+              "/api/accounts/sync/holdings",
               {
                 method: "POST",
                 data: {},

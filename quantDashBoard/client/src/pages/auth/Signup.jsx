@@ -1,7 +1,7 @@
 import React, { useRef, useState, useContext } from "react";
 import { useNavigate } from "react-router-dom";
 import UserContext from "../../context/UserContext";
-import axios from "axios";
+import { authenticatedPost } from "../../utils/apiClient";
 
 function Signup() {
   const navigate = useNavigate();
@@ -24,16 +24,7 @@ function Signup() {
     };
 
     try {
-      const response = await axios.post(
-        "http://localhost:3000/api/auth/signup",
-        formData,
-        {
-          headers: {
-            "Content-Type": "application/json",
-          },
-          withCredentials: true,
-        }
-      );
+      const response = await authenticatedPost("/api/auth/signup", formData);
 
       // Success - clear the form
       firstNameRef.current.value = "";
