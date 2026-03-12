@@ -240,7 +240,7 @@ function Portfolio() {
         // Fetch options
         try {
           const optionsRes = await authenticatedGet(
-            `http://localhost:3000/api/snaptrade/options/dbholdings?accountId=${encodeURIComponent(
+            `/api/snaptrade/options/dbholdings?accountId=${encodeURIComponent(
               accountId
             )}`
           );

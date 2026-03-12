@@ -104,24 +104,23 @@ describe("Task 15 — connections.js ESM compliance", () => {
     expect(requireLines).toEqual([]);
   });
 
-  test("jsonwebtoken is imported via ESM at the top level", () => {
-    expect(source).toMatch(/^import\s+jwt\s+from\s+["']jsonwebtoken["']/m);
+  test("jsonwebtoken is NOT imported (removed with debug endpoint — SRV-01)", () => {
+    expect(source).not.toMatch(/^import\s+jwt\s+from\s+["']jsonwebtoken["']/m);
+    expect(source).not.toMatch(/\bjsonwebtoken\b/);
   });
 
-  test("config is imported via ESM at the top level", () => {
-    expect(source).toMatch(
+  test("config/environment.js is NOT imported (removed with debug endpoint — SRV-01)", () => {
+    expect(source).not.toMatch(
       /^import\s+\{\s*config\s*\}\s+from\s+["']\.\.\/config\/environment\.js["']/m
     );
   });
 
-  test("debug endpoint still references jwt.decode and jwt.verify", () => {
-    // Ensure the debug handler wasn't accidentally broken — it should
-    // still call jwt.decode() and jwt.verify() using the top-level import.
-    expect(source).toMatch(/jwt\.decode\s*\(/);
-    expect(source).toMatch(/jwt\.verify\s*\(/);
+  test("debug endpoint is removed — no jwt.decode or jwt.verify (SRV-01)", () => {
+    expect(source).not.toMatch(/jwt\.decode\s*\(/);
+    expect(source).not.toMatch(/jwt\.verify\s*\(/);
   });
 
-  test("debug endpoint still references config.jwt.secret", () => {
-    expect(source).toMatch(/config\.jwt\.secret/);
+  test("debug endpoint is removed — no config.jwt.secret reference (SRV-01)", () => {
+    expect(source).not.toMatch(/config\.jwt\.secret/);
   });
 });

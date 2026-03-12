@@ -12,10 +12,8 @@
  */
 
 import express from "express";
-import jwt from "jsonwebtoken";
 import connectionsController from "../controllers/connectionsController.js";
 import { requireAuth } from "../middleware/authMiddleware.js";
-import { config } from "../config/environment.js";
 import updateConnectionsForUser from "../utils/updateConnections.js";
 
 const router = express.Router();
@@ -40,69 +38,6 @@ router.post("/snaptrade/portal", (req, res) => {
  */
 router.post("/snaptrade/exchange", (req, res) => {
   connectionsController.exchangeAuthorization(req, res);
-});
-
-/**
- * Debug authentication endpoint
- * GET /api/connections/debug
- * Response: { authInfo, userInfo }
- */
-router.get("/debug", (req, res) => {
-  const authHeader = req.headers.authorization;
-  const token =
-    authHeader && authHeader.startsWith("Bearer ")
-      ? authHeader.slice(7)
-      : req.cookies.jwt;
-
-  let tokenDecoded = null;
-  let tokenError = null;
-  if (token) {
-    try {
-      tokenDecoded = jwt.decode(token);
-      jwt.verify(token, config.jwt.secret);
-    } catch (error) {
-      tokenError = error.message;
-    }
-  }
-
-  res.json({
-    authHeader: authHeader ? "Present" : "Missing",
-    token: token ? `Present (${token.length} chars)` : "Missing",
-    tokenPreview: token ? token.substring(0, 20) + "..." : "N/A",
-    tokenDecoded: tokenDecoded,
-    tokenError: tokenError,
-    user: req.user
-      ? {
-          id: req.user._id,
-          userId: req.user.userId,
-          email: req.user.email,
-          userSecret: req.user.userSecret ? "Present" : "Missing",
-        }
-      : "Not set",
-    cookies: req.cookies,
-    headers: {
-      authorization: req.headers.authorization,
-      cookie: req.headers.cookie,
-    },
-  });
-});
-
-/**
- * Simple test endpoint that doesn't require SnapTrade API calls
- * GET /api/connections/test
- * Response: { message, user }
- */
-router.get("/test", (req, res) => {
-  res.json({
-    message: "Authentication successful",
-    user: req.user
-      ? {
-          id: req.user._id,
-          userId: req.user.userId,
-          email: req.user.email,
-        }
-      : "No user found",
-  });
 });
 
 /**

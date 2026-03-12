@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import axios from "axios";
+import { authenticatedPost } from "../../utils/apiClient";
 import { clearAuth } from "../../utils/authInterceptor";
 
 function Logout() {
@@ -11,11 +11,7 @@ function Logout() {
 
     const doLogout = async () => {
       try {
-        const response = await axios.post(
-          "http://localhost:3000/api/auth/logout",
-          {},
-          { withCredentials: true }
-        );
+        const response = await authenticatedPost("/api/auth/logout");
         console.log(response);
       } catch (error) {
         console.log("Logout request failed:", error);

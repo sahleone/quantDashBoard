@@ -92,10 +92,6 @@ const userSchema = new mongoose.Schema({
       type: String,
       default: "SPY",
     },
-    riskFree: {
-      type: String,
-      default: "FF_RF",
-    },
   },
 });
 

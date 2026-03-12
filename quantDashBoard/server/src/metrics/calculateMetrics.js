@@ -22,6 +22,7 @@ import * as returnsMetrics from "./helpers/returnsMetrics.js";
 import * as riskMetrics from "./helpers/riskMetrics.js";
 import * as riskAdjustedMetrics from "./helpers/riskAdjustedMetrics.js";
 import * as diversificationMetrics from "./helpers/diversificationMetrics.js";
+import { getAnnualizedRiskFreeRate } from "../services/famaFrenchService.js";
 
 /**
  * Calculates the date range for a given period ending at asOfDate
@@ -141,7 +142,7 @@ async function fetchBenchmarkReturns(startDate, endDate, db, portfolioDates = nu
  * @param {Object} db - MongoDB database connection
  * @returns {Object|null} - Metrics object or null if no data available
  */
-async function calculatePeriodMetrics(accountId, userId, period, asOfDate, db) {
+async function calculatePeriodMetrics(accountId, userId, period, asOfDate, db, riskFreeRate) {
   const { startDate: periodStart, endDate } = getPeriodDateRange(
     period,
     asOfDate
@@ -314,7 +315,7 @@ async function calculatePeriodMetrics(accountId, userId, period, asOfDate, db) {
     metrics.beta = null;
   }
 
-  metrics.sharpe = riskAdjustedMetrics.calculateSharpeRatio(returns, 0, true);
+  metrics.sharpe = riskAdjustedMetrics.calculateSharpeRatio(returns, riskFreeRate, true);
   metrics.sortino = riskAdjustedMetrics.calculateSortinoRatio(returns, 0, true);
   metrics.nav = latest.totalValue || 0;
 
@@ -382,6 +383,10 @@ export async function calculateMetrics(opts = {}) {
 
     console.log(`Processing ${accounts.length} account(s)`);
 
+    // Fetch authoritative risk-free rate from Fama-French data (RFR-03)
+    const riskFreeRate = await getAnnualizedRiskFreeRate();
+    console.log(`[calculateMetrics] Using annualized risk-free rate: ${riskFreeRate}`);
+
     const periods = ["1M", "3M", "YTD", "1Y", "ALL"];
     // Use UTC to avoid timezone-related off-by-one errors
     const now = new Date();
@@ -436,7 +441,8 @@ export async function calculateMetrics(opts = {}) {
               acctUserId,
               period,
               asOfDate,
-              db
+              db,
+              riskFreeRate
             );
 
             if (!metrics) {

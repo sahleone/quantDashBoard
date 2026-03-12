@@ -207,7 +207,6 @@ class AuthController {
         preferences: {
           baseCurrency: "USD",
           benchmark: "SPY",
-          riskFree: "FF_RF",
         },
       });
 

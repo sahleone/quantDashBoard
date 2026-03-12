@@ -1,6 +1,6 @@
 import { useRef, useState, useContext } from "react";
 import { useNavigate } from "react-router-dom";
-import axios from "axios";
+import { authenticatedPost } from "../../utils/apiClient";
 
 import UserContext from "../../context/UserContext";
 
@@ -20,16 +20,7 @@ function Login() {
     };
 
     try {
-      const response = await axios.post(
-        "http://localhost:3000/api/auth/login",
-        formData,
-        {
-          headers: {
-            "Content-Type": "application/json",
-          },
-          withCredentials: true,
-        }
-      );
+      const response = await authenticatedPost("/api/auth/login", formData);
 
       // Success - clear the form
       emailRef.current.value = "";

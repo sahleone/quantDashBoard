@@ -21,6 +21,7 @@ import * as riskAdjustedMetrics from "../metrics/helpers/riskAdjustedMetrics.js"
 import * as returnsMetrics from "../metrics/helpers/returnsMetrics.js";
 import * as portfolioSnapshotMetrics from "../metrics/helpers/portfolioSnapshotMetrics.js";
 import { calculateTWRFromDailyReturns } from "../metrics/helpers/returnsMetrics.js";
+import { getAnnualizedRiskFreeRate } from "../services/famaFrenchService.js";
 
 /**
  * Metrics Controller
@@ -34,7 +35,6 @@ import { calculateTWRFromDailyReturns } from "../metrics/helpers/returnsMetrics.
 class MetricsController {
   constructor() {
     this.benchmarkSymbol = process.env.BENCHMARK_SYMBOL || "SPY";
-    this.riskFreeRate = process.env.RISK_FREE_RATE || 0.02; // 2% annual
   }
 
   /**
@@ -488,9 +488,10 @@ class MetricsController {
       }
 
       const periodsPerYear = 252;
+      const riskFreeRate = await getAnnualizedRiskFreeRate();
       const sharpe = riskAdjustedMetrics.calculateSharpeRatio(
         returns,
-        this.riskFreeRate,
+        riskFreeRate,
         true
       );
       const sortino = riskAdjustedMetrics.calculateSortinoRatio(
@@ -941,7 +942,8 @@ class MetricsController {
       for (const r of returns) equityIndex.push(equityIndex[equityIndex.length - 1] * (1 + r));
 
       const volatility = riskMetrics.calculateVolatility(returns, true);
-      const sharpe = riskAdjustedMetrics.calculateSharpeRatio(returns, 0, true);
+      const riskFreeRate = await getAnnualizedRiskFreeRate();
+      const sharpe = riskAdjustedMetrics.calculateSharpeRatio(returns, riskFreeRate, true);
       const sortino = riskAdjustedMetrics.calculateSortinoRatio(returns, 0, true);
       const maxDrawdown = riskMetrics.calculateMaxDrawdown(equityIndex);
 
